@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kepr">
+<meta name="theme-color" content="#111111">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' fill='%23ffdd2d'/%3E%3Ctext x='90' y='125' font-size='110' font-weight='800' text-anchor='middle' font-family='Arial' fill='%23111'%3EK%3C/text%3E%3C/svg%3E">
+<title>Kepr</title>
+<style>
+:root{
+  --bg:#111; --card:#1d1d1f; --card2:#2a2a2d; --text:#fff; --muted:#8e8e93;
+  --yellow:#ffdd2d; --green:#2fd06b; --red:#ff5a5f; --blue:#3b82f6;
+  --safe-t:env(safe-area-inset-top); --safe-b:env(safe-area-inset-bottom);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
+  overscroll-behavior:none;-webkit-user-select:none;user-select:none}
+#app{max-width:480px;margin:0 auto;height:100%;position:relative;overflow:hidden}
+.screen{position:absolute;inset:0;overflow-y:auto;padding:calc(var(--safe-t) + 14px) 16px calc(90px + var(--safe-b));display:none}
+.screen.active{display:block}
+.demo{background:var(--yellow);color:#111;font-size:11px;font-weight:700;text-align:center;padding:4px;border-radius:8px;margin-bottom:12px}
+h1{font-size:28px;margin:6px 0 16px}
+h2{font-size:20px;margin:22px 0 10px}
+.muted{color:var(--muted)}
+.row{display:flex;align-items:center;gap:12px}
+.between{justify-content:space-between}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.avatar{width:38px;height:38px;border-radius:50%;background:var(--yellow);color:#111;font-weight:800;display:grid;place-items:center}
+.total{font-size:36px;font-weight:800;margin:4px 0}
+.stories{display:flex;gap:10px;overflow-x:auto;margin:16px -16px;padding:0 16px;scrollbar-width:none}
+.stories::-webkit-scrollbar{display:none}
+.story{flex:0 0 92px;height:110px;border-radius:16px;padding:10px;font-size:13px;font-weight:600;display:flex;align-items:flex-end;position:relative}
+.story span{position:absolute;top:8px;left:10px;font-size:22px}
+.cardbox{background:var(--card);border-radius:20px;padding:16px;margin-bottom:12px}
+.bankcard{height:170px;border-radius:20px;padding:18px;background:linear-gradient(135deg,#ffdd2d,#ffb800);color:#111;position:relative;margin-bottom:12px}
+.bankcard.black{background:linear-gradient(135deg,#3a3a3d,#111);color:#fff;border:1px solid #333}
+.bankcard .num{position:absolute;bottom:18px;left:18px;font-size:17px;letter-spacing:2px;font-weight:600}
+.bankcard .bal{font-size:26px;font-weight:800;margin-top:6px}
+.bankcard .logo{position:absolute;top:16px;right:18px;font-weight:900;font-size:20px}
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+.act{background:var(--card);border:0;color:var(--text);border-radius:16px;padding:14px 4px;font-size:13px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:6px;font-family:inherit}
+.act i{font-style:normal;font-size:22px}
+.act:active,.item:active,.svc:active{opacity:.6}
+.item{display:flex;align-items:center;gap:12px;padding:11px 0;border:0;background:none;color:inherit;width:100%;text-align:left;font-family:inherit;font-size:16px}
+.ico{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font-size:20px;background:var(--card2);flex:none}
+.grow{flex:1;min-width:0}
+.grow b{display:block;font-weight:600}
+.grow small{color:var(--muted);font-size:13px}
+.plus{color:var(--green);font-weight:600}
+.day{color:var(--muted);font-size:13px;margin:16px 0 4px;text-transform:uppercase}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.svc{background:var(--card);border:0;color:inherit;border-radius:16px;padding:16px;text-align:left;font-family:inherit;font-size:15px;font-weight:600}
+.svc i{font-style:normal;font-size:26px;display:block;margin-bottom:8px}
+.bar{height:10px;border-radius:5px;background:var(--card2);overflow:hidden;margin-top:6px}
+.bar div{height:100%;border-radius:5px}
+nav{position:absolute;bottom:0;left:0;right:0;display:flex;background:rgba(20,20,22,.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  padding:8px 0 calc(8px + var(--safe-b));border-top:1px solid #2a2a2d;z-index:5}
+nav button{flex:1;background:none;border:0;color:var(--muted);font-size:11px;display:flex;flex-direction:column;align-items:center;gap:3px;font-family:inherit}
+nav button i{font-style:normal;font-size:22px}
+nav button.on{color:var(--yellow)}
+.sheet-bg{position:absolute;inset:0;background:rgba(0,0,0,.6);z-index:10;display:none}
+.sheet-bg.show{display:block}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:#1a1a1c;border-radius:24px 24px 0 0;padding:18px 16px calc(18px + var(--safe-b));z-index:11;
+  transform:translateY(105%);transition:transform .28s ease;max-height:92%;overflow-y:auto}
+.sheet.show{transform:none}
+.sheet h3{margin:0 0 12px;font-size:20px;text-align:center}
+.amount{font-size:44px;font-weight:800;text-align:center;margin:10px 0}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+.keys button{background:var(--card);border:0;color:var(--text);font-size:24px;font-weight:600;padding:14px;border-radius:14px;font-family:inherit}
+.keys button:active{background:var(--card2)}
+.primary{width:100%;background:var(--yellow);color:#111;border:0;border-radius:14px;padding:16px;font-size:17px;font-weight:700;font-family:inherit;margin-top:6px}
+.primary:disabled{opacity:.35}
+.chips{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;scrollbar-width:none}
+.chip{flex:none;background:none;border:2px solid transparent;color:inherit;text-align:center;font-size:12px;font-family:inherit;padding:4px;border-radius:14px;width:68px}
+.chip.on{border-color:var(--yellow)}
+.chip .ico{margin:0 auto 4px}
+.toast{position:absolute;top:calc(var(--safe-t) + 10px);left:50%;transform:translate(-50%,-150%);background:var(--green);color:#041;font-weight:700;padding:10px 18px;border-radius:14px;z-index:30;transition:transform .3s}
+.toast.show{transform:translate(-50%,0)}
+.btn2{background:var(--card);color:var(--red);border:0;border-radius:14px;padding:14px;width:100%;font-size:16px;font-family:inherit;font-weight:600;margin-top:16px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="toast" id="toast"></div>
+
+  <!-- ГЛАВНАЯ -->
+  <section class="screen active" id="s-home">
+    <div class="demo">ДЕМО · все деньги вымышленные</div>
+    <div class="top">
+      <div class="row"><div class="avatar">А</div><div><div class="muted" style="font-size:13px">Добрый день</div><b>Алексей</b></div></div>
+      <div style="font-size:22px">🔔</div>
+    </div>
+    <div class="muted">Всего денег</div>
+    <div class="total" id="total"></div>
+
+    <div class="stories">
+      <div class="story" style="background:linear-gradient(135deg,#ff7a18,#af002d)"><span>🔥</span>Кэшбэк 15%</div>
+      <div class="story" style="background:linear-gradient(135deg,#3b82f6,#1e3a8a)"><span>💎</span>Премиум</div>
+      <div class="story" style="background:linear-gradient(135deg,#2fd06b,#046c3a)"><span>📈</span>Инвестиции</div>
+      <div class="story" style="background:linear-gradient(135deg,#a855f7,#4c1d95)"><span>✈️</span>Путешествия</div>
+      <div class="story" style="background:linear-gradient(135deg,#ec4899,#831843)"><span>🎁</span>Подарки</div>
+    </div>
+
+    <div class="actions">
+      <button class="act" onclick="openTransfer()"><i>↗️</i>Перевести</button>
+      <button class="act" onclick="openTopup()"><i>➕</i>Пополнить</button>
+      <button class="act" onclick="go('pay')"><i>🧾</i>Оплатить</button>
+    </div>
+
+    <div class="bankcard"><div class="logo">KEPR</div><div>Kepr Black</div><div class="bal" id="cardbal"></div><div class="num">•••• 4821</div></div>
+    <div class="bankcard black"><div class="logo">KEPR</div><div>Накопительный счёт</div><div class="bal" id="savebal"></div><div class="num">5% годовых</div></div>
+
+    <h2>Последние операции</h2>
+    <div class="cardbox" id="recent"></div>
+  </section>
+
+  <!-- ПЛАТЕЖИ -->
+  <section class="screen" id="s-pay">
+    <h1>Платежи</h1>
+    <div class="grid" id="services"></div>
+  </section>
+
+  <!-- ИСТОРИЯ -->
+  <section class="screen" id="s-history">
+    <h1>История</h1>
+    <div class="cardbox">
+      <b>Траты за месяц</b>
+      <div class="total" style="font-size:28px" id="spent"></div>
+      <div id="cats"></div>
+    </div>
+    <div id="hist"></div>
+  </section>
+
+  <!-- ЕЩЁ -->
+  <section class="screen" id="s-more">
+    <h1>Ещё</h1>
+    <div class="cardbox row"><div class="avatar" style="width:56px;height:56px;font-size:22px">А</div><div><b>Алексей Демов</b><div class="muted">+7 900 000-00-00</div></div></div>
+    <div class="cardbox">
+      <button class="item"><div class="ico">⚙️</div><div class="grow"><b>Настройки</b></div></button>
+      <button class="item"><div class="ico">🔒</div><div class="grow"><b>Безопасность</b></div></button>
+      <button class="item"><div class="ico">💬</div><div class="grow"><b>Поддержка</b></div></button>
+      <button class="item"><div class="ico">🎁</div><div class="grow"><b>Пригласить друга</b></div></button>
+    </div>
+    <p class="muted" style="font-size:13px;text-align:center">Kepr — учебное приложение. Это не банк: реальных денег, карт и платежей здесь нет.</p>
+    <button class="btn2" onclick="resetDemo()">Сбросить демо-данные</button>
+  </section>
+
+  <nav>
+    <button class="on" data-t="home"><i>🏠</i>Главная</button>
+    <button data-t="pay"><i>🧾</i>Платежи</button>
+    <button data-t="history"><i>🕒</i>История</button>
+    <button data-t="more"><i>☰</i>Ещё</button>
+  </nav>
+
+  <div class="sheet-bg" id="bg" onclick="closeSheet()"></div>
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<script>
+const KEY='kepr-demo-v1';
+const CONTACTS=[{n:'Мама',e:'👩'},{n:'Папа',e:'👨'},{n:'Иван',e:'🧑'},{n:'Катя',e:'👧'},{n:'Макс',e:'🧔'},{n:'Оля',e:'👩‍🦰'}];
+const SERVICES=[
+  {n:'Мобильная связь',e:'📱',c:'Связь'},{n:'Интернет',e:'🌐',c:'Связь'},
+  {n:'ЖКХ',e:'🏠',c:'Дом'},{n:'Электричество',e:'💡',c:'Дом'},
+  {n:'Штрафы ГИБДД',e:'🚗',c:'Транспорт'},{n:'Такси',e:'🚕',c:'Транспорт'},
+  {n:'Кино',e:'🎬',c:'Развлечения'},{n:'Игры',e:'🎮',c:'Развлечения'}];
+const COLORS={Связь:'#3b82f6',Дом:'#2fd06b',Транспорт:'#ffdd2d',Развлечения:'#a855f7',Переводы:'#ff7a18',Рестораны:'#ec4899',Супермаркеты:'#14b8a6',Другое:'#8e8e93'};
+const ICONS={Связь:'📱',Дом:'🏠',Транспорт:'🚕',Развлечения:'🎬',Переводы:'↗️',Рестораны:'🍔',Супермаркеты:'🛒',Пополнение:'➕',Другое:'💳'};
+
+const now=Date.now(), D=86400000;
+const seed=()=>({card:84250.5,save:150000,ops:[
+  {t:'Пятёрочка',c:'Супермаркеты',a:-1284.9,d:now-3600e3*3},
+  {t:'Кофемания',c:'Рестораны',a:-640,d:now-3600e3*8},
+  {t:'Зарплата',c:'Пополнение',a:95000,d:now-D*1},
+  {t:'Яндекс Go',c:'Транспорт',a:-389,d:now-D*1.2},
+  {t:'Netflix',c:'Развлечения',a:-799,d:now-D*2},
+  {t:'Перевод Кате',c:'Переводы',a:-3000,d:now-D*3},
+  {t:'МТС',c:'Связь',a:-500,d:now-D*4},
+  {t:'Перекрёсток',c:'Супермаркеты',a:-2150.4,d:now-D*5},
+  {t:'Бургер Кинг',c:'Рестораны',a:-520,d:now-D*6}]});
+let S;
+try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){}
+if(!S)S=seed();
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
+
+const $=id=>document.getElementById(id);
+const fmt=n=>new Intl.NumberFormat('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n)+' ₽';
+const sign=n=>(n>0?'+':'−')+fmt(Math.abs(n)).replace('-','');
+
+function dayLabel(ts){
+  const d=new Date(ts),t=new Date();
+  const k=x=>new Date(x).setHours(0,0,0,0);
+  const diff=Math.round((k(t)-k(d))/D);
+  if(diff===0)return 'Сегодня';if(diff===1)return 'Вчера';
+  return d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
+}
+function opHTML(o){
+  const time=new Date(o.d).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+  return `<div class="item"><div class="ico">${ICONS[o.c]||'💳'}</div><div class="grow"><b>${o.t}</b><small>${o.c} · ${time}</small></div><div class="${o.a>0?'plus':''}">${sign(o.a)}</div></div>`;
+}
+function render(){
+  $('total').textContent=fmt(S.card+S.save);
+  $('cardbal').textContent=fmt(S.card);
+  $('savebal').textContent=fmt(S.save);
+  S.ops.sort((a,b)=>b.d-a.d);
+  $('recent').innerHTML=S.ops.slice(0,5).map(opHTML).join('');
+  // history
+  let h='',last='';
+  S.ops.forEach(o=>{const l=dayLabel(o.d);if(l!==last){h+=`<div class="day">${l}</div>`;last=l}h+=`<div class="cardbox" style="padding:0 16px;margin-bottom:2px;border-radius:14px">${opHTML(o)}</div>`});
+  $('hist').innerHTML=h;
+  const sp={};let tot=0;
+  S.ops.filter(o=>o.a<0).forEach(o=>{sp[o.c]=(sp[o.c]||0)-o.a;tot-=o.a});
+  $('spent').textContent=fmt(tot);
+  $('cats').innerHTML=Object.entries(sp).sort((a,b)=>b[1]-a[1]).map(([c,v])=>
+    `<div style="margin-top:12px"><div class="row between"><span>${ICONS[c]||'💳'} ${c}</span><span class="muted">${fmt(v)}</span></div><div class="bar"><div style="width:${v/tot*100}%;background:${COLORS[c]||'#888'}"></div></div></div>`).join('');
+}
+$('services').innerHTML=SERVICES.map((s,i)=>`<button class="svc" onclick="openPay(${i})"><i>${s.e}</i>${s.n}</button>`).join('');
+
+// навигация
+function go(t){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  $('s-'+t).classList.add('active');
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  $('s-'+t).scrollTop=0;
+}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>go(b.dataset.t));
+
+// шторка
+function openSheet(html){$('sheet').innerHTML=html;$('bg').classList.add('show');requestAnimationFrame(()=>$('sheet').classList.add('show'))}
+function closeSheet(){$('sheet').classList.remove('show');$('bg').classList.remove('show')}
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800)}
+
+// ввод суммы
+let cur={mode:'',val:'',who:0,svc:null};
+function keypad(){return `<div class="amount" id="amt">0 ₽</div><div class="keys">${[1,2,3,4,5,6,7,8,9,',',0,'⌫'].map(k=>`<button onclick="key('${k}')">${k}</button>`).join('')}</div><button class="primary" id="go" disabled onclick="confirmOp()">Продолжить</button>`}
+function key(k){
+  let v=cur.val;
+  if(k==='⌫')v=v.slice(0,-1);
+  else if(k===','){if(!v.includes('.')&&v)v+='.'}
+  else{if(v==='0')v='';if(v.replace('.','').length<9&&!(v.includes('.')&&v.split('.')[1].length>=2))v+=k}
+  cur.val=v;
+  $('amt').textContent=(v?v.replace('.',','):'0')+' ₽';
+  $('go').disabled=!(parseFloat(v)>0);
+}
+function openTransfer(){
+  cur={mode:'transfer',val:'',who:0};
+  openSheet(`<h3>Перевод</h3><div class="chips">${CONTACTS.map((c,i)=>`<button class="chip ${i?'':'on'}" onclick="pick(${i},this)"><div class="ico">${c.e}</div>${c.n}</button>`).join('')}</div>${keypad()}`);
+}
+function pick(i,el){cur.who=i;document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));el.classList.add('on')}
+function openTopup(){cur={mode:'topup',val:''};openSheet(`<h3>Пополнение (виртуальное)</h3>${keypad()}`)}
+function openPay(i){cur={mode:'pay',val:'',svc:i};openSheet(`<h3>${SERVICES[i].e} ${SERVICES[i].n}</h3>${keypad()}`)}
+function confirmOp(){
+  const a=parseFloat(cur.val);
+  if(cur.mode==='topup'){
+    S.card+=a;S.ops.push({t:'Пополнение',c:'Пополнение',a:a,d:Date.now()});
+    toast('Зачислено '+fmt(a));
+  }else{
+    if(a>S.card){toast('Недостаточно средств');$('toast').style.background='var(--red)';setTimeout(()=>$('toast').style.background='',2000);return}
+    S.card-=a;
+    if(cur.mode==='transfer'){const c=CONTACTS[cur.who];S.ops.push({t:'Перевод: '+c.n,c:'Переводы',a:-a,d:Date.now()});toast('Отправлено '+c.n+' · '+fmt(a))}
+    else{const s=SERVICES[cur.svc];S.ops.push({t:s.n,c:s.c,a:-a,d:Date.now()});toast('Оплачено · '+fmt(a))}
+  }
+  S.card=Math.round(S.card*100)/100;
+  save();render();closeSheet();
+}
+function resetDemo(){if(confirm('Сбросить все данные?')){S=seed();save();render();go('home');toast('Данные сброшены')}}
+render();
+</script>
+</body>
+</html>
