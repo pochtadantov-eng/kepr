@@ -210,8 +210,10 @@ function renderTab(t) {
   if (t === 'shop') el.innerHTML = shopHTML();
   if (t !== 'chat') el.scrollTop = sc;
 }
+function hookScroll(){const sc=$('#s-home');if(!sc||sc._h)return;sc._h=1;sc.addEventListener('scroll',()=>{const b=$('.appbar',sc);if(b)b.classList.toggle('on',sc.scrollTop>120);},{passive:true});}
 function go(t) {
   tab = t;
+  if (t === 'home') setTimeout(hookScroll,0);
   if (t === 'chat') { const b = $('nav .nb'); if (b) b.remove(); }
   document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('active', s.id === 's-' + t));
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
@@ -223,26 +225,39 @@ document.querySelectorAll('nav button').forEach((b) => b.onclick = () => { popAl
 function homeHTML() {
   const sp = spending(), unread = S.notes.filter((n) => n.unread).length;
   const monthIn = { 0: 'январе', 1: 'феврале', 2: 'марте', 3: 'апреле', 4: 'мае', 5: 'июне', 6: 'июле', 7: 'августе', 8: 'сентябре', 9: 'октябре', 10: 'ноябре', 11: 'декабре' }[new Date().getMonth()];
+  const spSeg = sp.list.length ? sp.list.map((d) => `<i style="flex:${d.v};background:${d.col}"></i>`).join('') : '<i style="flex:1;background:#48484a"></i>';
   const prod = (a) => {
     const last4 = a.num ? a.num.slice(-4) : '';
-    return `<button class="prod" data-a="acc" data-p="${a.id}"><div class="rub ${a.kind === 'save' ? 'gr' : ''}">${a.kind === 'save' ? '%' : '₽'}</div><div><div class="pbal ${a.bal ? '' : 'z'}">${money(a.bal)}</div><div class="pname">${a.name.replace('Kepr ', '')}${a.frozen ? ' · заморожена' : ''}</div>${last4 ? `<div class="thumb ${a.frozen ? 'fz' : ''}">${last4}</div>` : ''}</div></button>`;
+    const ic = a.kind === 'save' ? '%' : '₽';
+    const ci = a.kind === 'save' ? 'gr' : 'bl';
+    return `<button class="prod" data-a="acc" data-p="${a.id}">
+      <div class="rub ${ci}">${ic}</div>
+      <div class="pright">
+        <div class="pbal ${a.bal ? '' : 'z'}">${money(a.bal)}</div>
+        <div class="pname">${a.name.replace('Kepr ', '')}${a.frozen ? ' · заморожена' : ''}</div>
+        ${last4 ? `<div class="thumb ${a.frozen ? 'fz' : ''}"><span>${last4}</span></div>` : ''}
+      </div>
+    </button>`;
   };
+  const stTint = ['linear-gradient(135deg,#ff7a18,#af002d)','linear-gradient(135deg,#3b3b3f,#111)','linear-gradient(135deg,#f0b400,#8a5a00)','linear-gradient(135deg,#ec4899,#831843)','linear-gradient(135deg,#2fd06b,#046c3a)'];
+  const stIco = ['⏰','📱','🖐','🎭','📈'];
   return `
+  <div class="appbar"><div class="atitle">Главная</div></div>
   <div class="hello"><div class="avatar g" data-a="profile">И</div><button class="name" data-a="profile">Иван <span>›</span></button><button class="bell" data-a="notes">🔔${unread ? `<b>${unread}</b>` : ''}</button></div>
   <button class="search" data-a="search"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Поиск</button>
-  <div class="stories">${STORIES.map((s, i) => `<button class="story ${S.seen[i] ? 'seen' : ''}" style="background:${s[2]}" data-a="story" data-p="${i}"><span>${s[0]}</span>${s[1]}</button>`).join('')}</div>
+  <div class="stories">${STORIES.map((s, i) => `<button class="story ${S.seen[i] ? 'seen' : ''}" style="background:${stTint[i] || s[2]}" data-a="story" data-p="${i}"><div class="stico">${stIco[i] || s[0]}</div><div class="stlbl">${s[1]}</div></button>`).join('')}</div>
   <div class="two">
-    <button class="tile2" data-a="allops"><b>Все операции</b>${sp.tot ? `<small>Траты в ${monthIn}</small><div class="tot">${money(sp.tot, 0)}</div>` : `<small>Нет трат<br>в ${monthIn}</small>`}<div class="seg2">${sp.list.length ? sp.list.map((d) => `<i style="flex:${d.v};background:${d.col}"></i>`).join('') : '<i style="flex:1"></i>'}</div></button>
-    <button class="tile2" data-a="cashback"><b>Кэшбэк<br>и бонусы</b><div class="logos"><i style="background:#14b86a">🛒</i><i style="background:#3b2f6b">☕</i><i style="background:#1b5e3a">💊</i></div></button>
+    <button class="tile2" data-a="allops"><b>Все операции</b>${sp.tot ? `<small>Траты в ${monthIn}</small><div class="tot">${money(sp.tot, 0)}</div>` : `<small>Нет трат<br>в ${monthIn}</small>`}<div class="seg2">${spSeg}</div></button>
+    <button class="tile2" data-a="cashback"><b>Кэшбэк<br>и бонусы</b><div class="logos"><i style="background:#14b86a"><svg viewBox="0 0 24 24" width="20" height="20" fill="#fff"><circle cx="12" cy="12" r="10"/><circle cx="9" cy="12" r="2" fill="#14b86a"/><circle cx="14" cy="10" r="1.3" fill="#14b86a"/><circle cx="15" cy="14" r="1.3" fill="#14b86a"/></svg></i><i style="background:#1b4030"><span style="font-size:9px;font-weight:800;color:#fff;line-height:1;text-align:center">ECO<br>CARE</span></i><i style="background:#1b5e3a"><svg viewBox="0 0 24 24" width="22" height="22" fill="#fff"><path d="M12 3 L15 9 L21 10 L17 15 L18 21 L12 18 L6 21 L7 15 L3 10 L9 9 Z"/></svg></i></div></button>
   </div>
   ${S.acc.map(prod).join('')}
-  <button class="prod" data-a="invest"><div class="rub bl">📈</div><div><div class="pbal">${money(invValue())}</div><div class="pname">Инвестиции</div></div></button>
-  <button class="wide" data-a="credits"><div class="wico">💸</div><div><b>Кредиты</b><span>Деньги от банка и рейтинг</span></div></button>
+  <button class="prod" data-a="invest"><div class="rub bl2">📈</div><div class="pright"><div class="pbal">${money(invValue())}</div><div class="pname">Инвестиции</div></div></button>
+  <button class="wide" data-a="credits"><div class="wico"><svg viewBox="0 0 24 24" width="26" height="26" fill="#fff"><rect x="3" y="6" width="18" height="12" rx="2"/><rect x="3" y="9" width="18" height="2" fill="#3b82f6"/></svg></div><div><b>Кредиты</b><span>Деньги от банка и рейтинг</span></div></button>
   <div class="two">
-    <button class="tile2 art" data-a="acc" data-p="save"><b>Копить</b><em>🐷</em></button>
-    <button class="tile2 art tall" data-a="soon"><b>Сим-карта</b><em>📶</em></button>
-    <button class="tile2 art" data-a="buy" data-p="o4"><b>🎧 и 🎬<br>с кэшбэком</b><em>🍿</em></button>
-    <button class="tile2 art" data-a="soon"><b>Выпустить<br>карту</b><em>💳</em></button>
+    <button class="tile2 art" data-a="acc" data-p="save"><b>Копить</b><em class="art-safe"></em></button>
+    <button class="tile2 art tall" data-a="soon"><b>Сим-карта</b><em class="art-sim"></em></button>
+    <button class="tile2 art" data-a="buy" data-p="o4"><b><span style="font-size:17px">🎧 и 🎬</span><br>с кэшбэком</b><em class="art-pop"></em></button>
+    <button class="tile2 art" data-a="soon"><b>Выпустить<br>карту</b><em class="art-card"></em></button>
   </div>`;
 }
 actions.tab = (t) => go(t);
