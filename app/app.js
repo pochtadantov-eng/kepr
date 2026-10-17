@@ -207,11 +207,12 @@ function renderTab(t) {
   if (t === 'pay') el.innerHTML = payHTML();
   if (t === 'city') el.innerHTML = cityHTML();
   if (t === 'chat') { el.innerHTML = chatHTML(); }
-  if (t === 'more') el.innerHTML = moreHTML();
+  if (t === 'shop') el.innerHTML = shopHTML();
   if (t !== 'chat') el.scrollTop = sc;
 }
 function go(t) {
   tab = t;
+  if (t === 'chat') { const b = $('nav .nb'); if (b) b.remove(); }
   document.querySelectorAll('.screen').forEach((s) => s.classList.toggle('active', s.id === 's-' + t));
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
   renderTab(t);
@@ -220,29 +221,29 @@ function go(t) {
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => { popAll(); go(b.dataset.t); });
 
 function homeHTML() {
-  const unread = S.notes.filter((n) => n.unread).length;
-  const sp = spending();
-  const total = S.acc.reduce((s, a) => s + a.bal, 0) + invValue();
-  const month = new Date().toLocaleDateString('ru-RU', { month: 'long' });
+  const sp = spending(), unread = S.notes.filter((n) => n.unread).length;
+  const monthIn = { 0: 'январе', 1: 'феврале', 2: 'марте', 3: 'апреле', 4: 'мае', 5: 'июне', 6: 'июле', 7: 'августе', 8: 'сентябре', 9: 'октябре', 10: 'ноябре', 11: 'декабре' }[new Date().getMonth()];
+  const prod = (a) => {
+    const last4 = a.num ? a.num.slice(-4) : '';
+    return `<button class="prod" data-a="acc" data-p="${a.id}"><div class="rub ${a.kind === 'save' ? 'gr' : ''}">${a.kind === 'save' ? '%' : '₽'}</div><div><div class="pbal ${a.bal ? '' : 'z'}">${money(a.bal)}</div><div class="pname">${a.name.replace('Kepr ', '')}${a.frozen ? ' · заморожена' : ''}</div>${last4 ? `<div class="thumb ${a.frozen ? 'fz' : ''}">${last4}</div>` : ''}</div></button>`;
+  };
   return `
-  <div class="top"><div class="avatar" data-a="tab" data-p="more">А</div><button class="search" data-a="search">🔍 Поиск</button><button class="bell" data-a="notes">🔔${unread ? `<b>${unread}</b>` : ''}</button></div>
+  <div class="hello"><div class="avatar g" data-a="profile">И</div><button class="name" data-a="profile">Иван <span>›</span></button><button class="bell" data-a="notes">🔔${unread ? `<b>${unread}</b>` : ''}</button></div>
+  <button class="search" data-a="search"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Поиск</button>
   <div class="stories">${STORIES.map((s, i) => `<button class="story ${S.seen[i] ? 'seen' : ''}" style="background:${s[2]}" data-a="story" data-p="${i}"><span>${s[0]}</span>${s[1]}</button>`).join('')}</div>
-  <div class="muted" style="margin-top:14px">Всего денег</div><div class="big">${money(total)}</div>
-  <div class="actions">
-    <button class="act" data-a="transfer"><i>↗️</i>Перевести</button>
-    <button class="act" data-a="topup"><i>➕</i>Пополнить</button>
-    <button class="act" data-a="tab" data-p="pay"><i>🧾</i>Оплатить</button>
-    <button class="act" data-a="own"><i>🔁</i>Между своими</button>
+  <div class="two">
+    <button class="tile2" data-a="allops"><b>Все операции</b>${sp.tot ? `<small>Траты в ${monthIn}</small><div class="tot">${money(sp.tot, 0)}</div>` : `<small>Нет трат<br>в ${monthIn}</small>`}<div class="seg2">${sp.list.length ? sp.list.map((d) => `<i style="flex:${d.v};background:${d.col}"></i>`).join('') : '<i style="flex:1"></i>'}</div></button>
+    <button class="tile2" data-a="cashback"><b>Кэшбэк<br>и бонусы</b><div class="logos"><i style="background:#14b86a">🛒</i><i style="background:#3b2f6b">☕</i><i style="background:#1b5e3a">💊</i></div></button>
   </div>
-  <div class="card" style="padding:4px 16px">
-    ${S.acc.map((a) => `<button class="item" data-a="acc" data-p="${a.id}"><div class="mini ${accMini(a)}"></div><div class="grow"><b>${money(a.bal)}</b><small>${a.name}${a.frozen ? ' · заморожена' : ''}</small></div><span class="muted">›</span></button>`).join('')}
-    <button class="item" data-a="invest"><div class="mini b"></div><div class="grow"><b>${money(invValue())}</b><small>Инвестиции</small></div><span class="muted">›</span></button>
-  </div>
-  <div class="cb"><span>Баллы кэшбэка</span><b>${nf(0).format(S.points).replace(/ /g, NB)} баллов</b><small>1 балл = 1 ₽ при оплате в «Городе»</small></div>
-  <div class="sect">Траты в ${month}<a data-a="allops">Все операции</a></div>
-  <div class="card pad"><div class="donutbox">${donut(sp.list)}<div class="legend"><b style="font-size:20px">${money(sp.tot, 0)}</b>${sp.list.slice(0, 4).map((d) => `<div><i style="background:${d.col}"></i>${d.c}</div>`).join('')}</div></div></div>
-  <div class="sect">Операции<a data-a="allops">Все</a></div>
-  ${groupedOps(sortedOps().slice(0, 6))}`;
+  ${S.acc.map(prod).join('')}
+  <button class="prod" data-a="invest"><div class="rub bl">📈</div><div><div class="pbal">${money(invValue())}</div><div class="pname">Инвестиции</div></div></button>
+  <button class="wide" data-a="credits"><div class="wico">💸</div><div><b>Кредиты</b><span>Деньги от банка и рейтинг</span></div></button>
+  <div class="two">
+    <button class="tile2 art" data-a="acc" data-p="save"><b>Копить</b><em>🐷</em></button>
+    <button class="tile2 art tall" data-a="soon"><b>Сим-карта</b><em>📶</em></button>
+    <button class="tile2 art" data-a="buy" data-p="o4"><b>🎧 и 🎬<br>с кэшбэком</b><em>🍿</em></button>
+    <button class="tile2 art" data-a="soon"><b>Выпустить<br>карту</b><em>💳</em></button>
+  </div>`;
 }
 actions.tab = (t) => go(t);
 
@@ -269,19 +270,31 @@ function chatHTML() {
   return `<h1>Чат</h1><div class="chat" id="chatlist">${S.chat.map((m) => `<div class="msg ${m.w}">${esc(m.t)}</div>`).join('')}</div>
   <form class="chatbar" id="chatform"><input class="field" id="chatin" placeholder="Сообщение" autocomplete="off"><button>➤</button></form>`;
 }
-function moreHTML() {
-  return `<h1>Ещё</h1>
-  <div class="card pad row"><div class="avatar" style="width:56px;height:56px;font-size:22px">А</div><div><b>Алексей Демов</b><div class="muted">+7 900 000-00-00</div></div></div>
+function shopHTML() {
+  const t = (e, n, sub, a, p = '') => `<button class="tile" data-a="${a}" data-p="${p}"><i>${e}</i>${n}<small>${sub}</small></button>`;
+  return `<h1>Витрина</h1><div class="grid">
+    ${t('🐷', 'Копить', 'Накопительный счёт', 'acc', 'save')}${t('📈', 'Инвестиции', 'Акции за виртуальные ₽', 'invest')}
+    ${t('💸', 'Кредиты', 'Деньги от банка', 'credits')}${t('🛡️', 'Страхование', 'Скоро', 'soon')}
+    ${t('📶', 'Сим-карта', 'Скоро', 'soon')}${t('✈️', 'Путешествия', 'Скоро', 'soon')}
+    ${t('🎬', 'Кино', 'Кэшбэк 20%', 'buy', 'o4')}${t('💳', 'Выпустить карту', 'Скоро', 'soon')}
+  </div>`;
+}
+function profileHTML() {
+  return `${head('Профиль')}
+  <div class="card pad row"><div class="avatar g" style="width:56px;height:56px;font-size:22px">И</div><div><b>Иван</b><div class="muted">+7 900 000-00-00</div></div></div>
   <div class="card">
     <button class="item" data-a="limits"><div class="ico">📊</div><div class="grow"><b>Лимиты</b></div><span class="muted">›</span></button>
     <button class="item" data-a="setpin"><div class="ico">🔒</div><div class="grow"><b>Код-пароль</b><small>${S.pin ? 'Установлен' : 'Любой 4-значный код'}</small></div><span class="muted">›</span></button>
     <button class="item" data-a="lock"><div class="ico">🔐</div><div class="grow"><b>Заблокировать приложение</b></div></button>
     <button class="item" data-a="soon"><div class="ico">💬</div><div class="grow"><b>Поддержка</b></div><span class="muted">›</span></button>
-    <button class="item" data-a="soon"><div class="ico">🎁</div><div class="grow"><b>Пригласить друга</b></div><span class="muted">›</span></button>
   </div>
   <p class="muted" style="font-size:13px;text-align:center;line-height:1.4">Kepr — учебное приложение. Это не банк: реальных денег, карт и платежей здесь нет.</p>
   <button class="btn2" data-a="reset">Сбросить демо-данные</button>`;
 }
+actions.profile = () => push(() => profileHTML());
+actions.credits = () => push(() => `${head('Кредиты')}<div class="card pad"><b style="font-size:20px">Кредитный рейтинг</b><div class="big" style="color:var(--green)">742</div><div class="muted">Хороший · обновлено сегодня (демо)</div></div><div class="card pad"><b>Кредит наличными</b><div class="muted" style="margin:4px 0 12px">До 1 000 000 ₽ — виртуально</div><button class="primary" data-a="soon">Оформить</button></div>`);
+actions.cashback = () => push(() => `${head('Кэшбэк и бонусы')}<div class="cb"><span>Баллы кэшбэка</span><b>${nf(0).format(S.points).replace(/ /g, NB)} баллов</b><small>1 балл = 1 ₽ в «Городе»</small></div><button class="primary" data-a="gocity">Предложения партнёров</button>`);
+actions.gocity = () => { popAll(); go('city'); };
 actions.soon = () => toast('Раздел в разработке');
 actions.limits = () => push((el) => `${head('Лимиты')}<div class="card pad"><b>Переводы в месяц</b><div class="muted" style="margin:4px 0 8px">Использовано ${money(-S.ops.filter((o) => o.c === 'Переводы' && o.a < 0 && isMonth(o.d)).reduce((s, o) => s + o.a, 0), 0)} из 1 000 000 ₽</div><div class="bar"><div style="width:${Math.min(100, -S.ops.filter((o) => o.c === 'Переводы' && o.a < 0 && isMonth(o.d)).reduce((s, o) => s + o.a, 0) / 10000)}%;background:var(--yellow)"></div></div></div>`);
 actions.reset = () => { if (confirm('Сбросить все демо-данные?')) { popAll(); S = seed(); refresh(); toast('Данные сброшены'); } };
@@ -306,7 +319,7 @@ actions.search = () => {
 };
 
 /* ---------- операции ---------- */
-actions.allops = () => push(() => `${head('Операции')}${groupedOps(sortedOps())}`);
+actions.allops = () => push(() => { const sp = spending(); return `${head('Все операции')}<div class="card pad"><div class="donutbox">${donut(sp.list)}<div class="legend"><b style="font-size:20px">${money(sp.tot, 0)}</b>${sp.list.slice(0, 4).map((d) => `<div><i style="background:${d.col}"></i>${d.c}</div>`).join('')}</div></div></div>${groupedOps(sortedOps())}`; });
 actions.op = (id) => {
   const o = S.ops.find((x) => x.id === id); if (!o) return;
   const c = CATS[o.c] || ['💳'];
@@ -509,18 +522,26 @@ document.addEventListener('submit', (e) => {
 /* ---------- экран блокировки ---------- */
 let pinBuf = '';
 function lockHTML(msg) {
-  return `<div class="klogo">K</div><h2 style="margin:18px 0 0">${msg || 'Введите код'}</h2><div class="muted" style="margin-top:6px;font-size:13px">${S.pin ? '' : 'Демо: подойдёт любой 4-значный код'}</div>
-  <div class="dots" id="dots">${[0, 1, 2, 3].map((i) => `<i class="${i < pinBuf.length ? 'f' : ''}"></i>`).join('')}</div>
-  <div class="keys">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((k) => `<button data-a="pin" data-p="${k}">${k}</button>`).join('')}<button data-a="faceid" style="font-size:22px">🙂</button><button data-a="pin" data-p="0">0</button><button data-a="pin" data-p="⌫">⌫</button></div>`;
+  const dots = [0, 1, 2, 3].map((i) => `<i class="${i < pinBuf.length ? 'f' : ''}"></i>`).join('');
+  return `<div class="lav"><svg width="30" height="30" viewBox="0 0 24 24" fill="#d6d6d6"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7z"/></svg></div><div class="lname">${msg || 'Иван'}</div>
+  <div class="dots" id="dots">${dots}</div><div class="lhint">${S.pin ? '' : 'Демо: подойдёт любой 4-значный код'}</div>
+  <div class="lkeys">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((k) => `<button data-a="pin" data-p="${k}">${k}</button>`).join('')}<button class="exit" data-a="lockexit">Выйти</button><button data-a="pin" data-p="0">0</button><button id="lk-last" data-a="faceid">${FACE}</button></div>`;
 }
+const FACE = '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#9a9a9f" stroke-width="1.5" stroke-linecap="round"><path d="M4 8V6a2 2 0 012-2h2M16 4h2a2 2 0 012 2v2M20 16v2a2 2 0 01-2 2h-2M8 20H6a2 2 0 01-2-2v-2"/><path d="M9 9v1.5M15 9v1.5M12 9.5v3.2h-1M9 15.5c1.8 1.5 4.2 1.5 6 0"/></svg>';
+const BKSP = '<svg width="34" height="34" viewBox="0 0 24 24" fill="#9a9a9f"><path d="M8 5h12a2 2 0 012 2v10a2 2 0 01-2 2H8l-6-7z"/><path d="M12 9.5l5 5M17 9.5l-5 5" stroke="#000" stroke-width="1.8" stroke-linecap="round"/></svg>';
+function pinUI() {
+  $('#dots').innerHTML = [0, 1, 2, 3].map((i) => `<i class="${i < pinBuf.length ? 'f' : ''}"></i>`).join('');
+  const b = $('#lk-last'); b.dataset.a = pinBuf ? 'pin' : 'faceid'; b.dataset.p = '⌫'; b.innerHTML = pinBuf ? BKSP : FACE;
+}
+actions.lockexit = () => toast('Это демо — выйти некуда 🙂');
 function showLock(msg) { pinBuf = ''; const l = $('#lock'); l.innerHTML = lockHTML(msg); l.classList.remove('hide'); }
 actions.lock = () => { popAll(); showLock(); };
 actions.faceid = () => { toast('Face ID: распознано (демо)'); $('#lock').classList.add('hide'); };
 actions.pin = (k) => {
   if (k === '⌫') pinBuf = pinBuf.slice(0, -1); else if (pinBuf.length < 4) pinBuf += k;
-  $('#dots').innerHTML = [0, 1, 2, 3].map((i) => `<i class="${i < pinBuf.length ? 'f' : ''}"></i>`).join('');
+  pinUI();
   if (pinBuf.length === 4) {
-    if (S.pin && pinBuf !== S.pin) { const d = $('#dots'); d.classList.add('shake'); setTimeout(() => { pinBuf = ''; d.classList.remove('shake'); d.innerHTML = '<i></i><i></i><i></i><i></i>'; }, 380); return; }
+    if (S.pin && pinBuf !== S.pin) { const d = $('#dots'); d.classList.add('shake'); setTimeout(() => { pinBuf = ''; d.classList.remove('shake'); pinUI(); }, 380); return; }
     setTimeout(() => $('#lock').classList.add('hide'), 120);
   }
 };
