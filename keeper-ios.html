@@ -1,0 +1,1583 @@
+<title>Keeper for iOS</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: an iPhone frame centers on the page; inside it, a native-feeling Notes/Keep hybrid with a large title, inline search, a two-column grid of colored memo cards, pinned section, a full-screen editor sheet, and a floating compose button. */
+
+:root {
+  /* iOS system palette — light */
+  --page-bg: #e5e5ea;
+  --device-bezel: #1c1c1e;
+  --device-glow: rgba(0, 0, 0, 0.35);
+  --app-bg: #f2f2f7;
+  --app-fg: #1c1c1e;
+  --app-fg-muted: #6c6c70;
+  --app-fg-subtle: #8e8e93;
+  --app-sep: rgba(60, 60, 67, 0.14);
+  --app-sep-strong: rgba(60, 60, 67, 0.29);
+  --app-surface: #ffffff;
+  --app-surface-2: #f2f2f7;
+  --app-chip: rgba(118, 118, 128, 0.12);
+  --app-chip-active: rgba(118, 118, 128, 0.24);
+  --ios-blue: #007aff;
+  --ios-blue-weak: rgba(0, 122, 255, 0.14);
+  --ios-red: #ff3b30;
+  --ios-orange: #ff9500;
+  --ios-yellow: #ffcc00;
+  --ios-green: #34c759;
+  --ios-indigo: #5856d6;
+  --ios-pink: #ff2d55;
+  --ios-gray: #8e8e93;
+  --status-ink: #1c1c1e;
+  --home-ind: rgba(28, 28, 30, 0.9);
+
+  /* Note card tints (paper-soft) */
+  --note-butter: #fff6c9;
+  --note-apricot: #ffe1c6;
+  --note-rose: #ffd5de;
+  --note-mauve: #e9d6ff;
+  --note-sky: #cfe8ff;
+  --note-mint: #c8f1d6;
+  --note-sage: #e2ecd4;
+  --note-stone: #ececec;
+
+  /* Type scale */
+  --f-display: 34px;
+  --f-large: 28px;
+  --f-title: 22px;
+  --f-headline: 17px;
+  --f-body: 15px;
+  --f-caption: 13px;
+  --f-micro: 11px;
+
+  --radius-card: 18px;
+  --radius-chip: 999px;
+  --radius-sheet: 24px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page-bg: #000;
+    --device-bezel: #0a0a0b;
+    --device-glow: rgba(0, 0, 0, 0.65);
+    --app-bg: #000;
+    --app-fg: #f2f2f7;
+    --app-fg-muted: #aeaeb2;
+    --app-fg-subtle: #8e8e93;
+    --app-sep: rgba(84, 84, 88, 0.3);
+    --app-sep-strong: rgba(84, 84, 88, 0.5);
+    --app-surface: #1c1c1e;
+    --app-surface-2: #2c2c2e;
+    --app-chip: rgba(118, 118, 128, 0.24);
+    --app-chip-active: rgba(118, 118, 128, 0.4);
+    --ios-blue: #0a84ff;
+    --ios-blue-weak: rgba(10, 132, 255, 0.22);
+    --ios-red: #ff453a;
+    --ios-orange: #ff9f0a;
+    --ios-yellow: #ffd60a;
+    --ios-green: #30d158;
+    --ios-indigo: #5e5ce6;
+    --ios-pink: #ff375f;
+    --status-ink: #ffffff;
+    --home-ind: rgba(255, 255, 255, 0.9);
+
+    --note-butter: #5a4a1c;
+    --note-apricot: #5a3a1c;
+    --note-rose: #5a1f2d;
+    --note-mauve: #3a2d5e;
+    --note-sky: #1c3a5a;
+    --note-mint: #1c4a2c;
+    --note-sage: #2d3a1f;
+    --note-stone: #2c2c2e;
+
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page-bg: #000;
+  --device-bezel: #0a0a0b;
+  --device-glow: rgba(0, 0, 0, 0.65);
+  --app-bg: #000;
+  --app-fg: #f2f2f7;
+  --app-fg-muted: #aeaeb2;
+  --app-fg-subtle: #8e8e93;
+  --app-sep: rgba(84, 84, 88, 0.3);
+  --app-sep-strong: rgba(84, 84, 88, 0.5);
+  --app-surface: #1c1c1e;
+  --app-surface-2: #2c2c2e;
+  --app-chip: rgba(118, 118, 128, 0.24);
+  --app-chip-active: rgba(118, 118, 128, 0.4);
+  --ios-blue: #0a84ff;
+  --ios-blue-weak: rgba(10, 132, 255, 0.22);
+  --ios-red: #ff453a;
+  --ios-orange: #ff9f0a;
+  --ios-yellow: #ffd60a;
+  --ios-green: #30d158;
+  --ios-indigo: #5e5ce6;
+  --ios-pink: #ff375f;
+  --status-ink: #ffffff;
+  --home-ind: rgba(255, 255, 255, 0.9);
+
+  --note-butter: #5a4a1c;
+  --note-apricot: #5a3a1c;
+  --note-rose: #5a1f2d;
+  --note-mauve: #3a2d5e;
+  --note-sky: #1c3a5a;
+  --note-mint: #1c4a2c;
+  --note-sage: #2d3a1f;
+  --note-stone: #2c2c2e;
+
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--app-fg);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-block: 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  overflow-x: hidden;
+}
+
+/* iPhone-like device frame */
+.device {
+  position: relative;
+  width: min(420px, 100%);
+  aspect-ratio: 420 / 860;
+  background: var(--device-bezel);
+  border-radius: 54px;
+  padding: 12px;
+  box-shadow:
+    0 50px 100px -40px var(--device-glow),
+    0 0 0 1.5px rgba(255,255,255,0.04) inset,
+    0 0 0 3px #2a2a2d;
+  isolation: isolate;
+}
+.device::before {
+  /* side-button shadow strokes for realism */
+  content: "";
+  position: absolute;
+  inset: 100px -3px auto auto;
+  width: 3px; height: 54px;
+  background: #2a2a2d;
+  border-radius: 2px;
+}
+.device::after {
+  content: "";
+  position: absolute;
+  inset: 180px auto auto -3px;
+  width: 3px; height: 86px;
+  background: #2a2a2d;
+  border-radius: 2px;
+  box-shadow: 0 110px 0 #2a2a2d, 0 -70px 0 #2a2a2d;
+}
+
+.screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--app-bg);
+  border-radius: 42px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Status bar */
+.status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 28px 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--status-ink);
+  letter-spacing: 0.2px;
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 3;
+}
+.status .glyphs {
+  display: flex; align-items: center; gap: 6px;
+}
+.signal, .wifi, .battery {
+  display: inline-block;
+}
+.signal { width: 17px; height: 11px; position: relative; }
+.signal span {
+  position: absolute; bottom: 0; width: 3px;
+  background: var(--status-ink); border-radius: 1px;
+}
+.signal span:nth-child(1) { left: 0; height: 4px; }
+.signal span:nth-child(2) { left: 4px; height: 6px; }
+.signal span:nth-child(3) { left: 8px; height: 8px; }
+.signal span:nth-child(4) { left: 12px; height: 11px; }
+.wifi {
+  width: 15px; height: 11px;
+  background:
+    radial-gradient(circle at 50% 100%, var(--status-ink) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 50% 100%, transparent 4px, var(--status-ink) 4.1px 5.5px, transparent 6px),
+    radial-gradient(circle at 50% 100%, transparent 7.5px, var(--status-ink) 7.6px 9px, transparent 9.5px);
+  mask: radial-gradient(circle at 50% 100%, #000 0 11px, transparent 11.5px);
+  -webkit-mask: radial-gradient(circle at 50% 100%, #000 0 11px, transparent 11.5px);
+}
+.battery {
+  width: 26px; height: 12px;
+  border: 1px solid var(--status-ink);
+  border-radius: 3px; position: relative;
+  opacity: 0.9;
+}
+.battery::after {
+  content: ""; position: absolute; right: -3px; top: 3px;
+  width: 2px; height: 6px; background: var(--status-ink);
+  border-radius: 0 2px 2px 0;
+}
+.battery::before {
+  content: ""; position: absolute; inset: 1.5px;
+  width: calc(100% - 10px); background: var(--status-ink); border-radius: 1.5px;
+}
+
+/* Dynamic Island */
+.island {
+  position: absolute;
+  top: 10px; left: 50%; transform: translateX(-50%);
+  width: 118px; height: 34px;
+  background: #000;
+  border-radius: 999px;
+  z-index: 2;
+}
+
+/* App shell */
+.app {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 20px 0;
+  color: var(--ios-blue);
+  font-size: var(--f-headline);
+  font-weight: 500;
+}
+.topbar button {
+  background: none; border: 0; padding: 8px 0;
+  color: var(--ios-blue); font-size: var(--f-headline);
+  font-family: inherit; font-weight: 400;
+  display: inline-flex; align-items: center; gap: 4px;
+  cursor: pointer;
+}
+.topbar .right { display: flex; gap: 14px; }
+.icon-btn {
+  width: 32px; height: 32px; border-radius: 999px;
+  background: var(--app-chip);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ios-blue);
+}
+
+.title-row {
+  padding: 6px 20px 2px;
+}
+.title-row h1 {
+  margin: 0;
+  font-size: var(--f-display);
+  font-weight: 800;
+  letter-spacing: -0.6px;
+  color: var(--app-fg);
+}
+.subtitle {
+  color: var(--app-fg-subtle);
+  font-size: var(--f-caption);
+  margin: 2px 0 0;
+}
+
+/* Search */
+.search {
+  margin: 10px 16px 6px;
+  background: var(--app-chip);
+  border-radius: 12px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+}
+.search input {
+  flex: 1; min-width: 0;
+  border: 0; outline: 0; background: transparent;
+  font-family: inherit; font-size: var(--f-headline);
+  color: var(--app-fg);
+}
+.search input::placeholder { color: var(--app-fg-subtle); }
+.search svg { width: 16px; height: 16px; color: var(--app-fg-subtle); flex: 0 0 auto; }
+
+/* Chips row */
+.chips {
+  display: flex; gap: 8px;
+  overflow-x: auto; scrollbar-width: none;
+  padding: 10px 16px 6px;
+}
+.chips::-webkit-scrollbar { display: none; }
+.chip {
+  flex: 0 0 auto;
+  padding: 7px 13px;
+  border-radius: var(--radius-chip);
+  background: var(--app-chip);
+  color: var(--app-fg);
+  font-size: var(--f-caption);
+  font-weight: 600;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.chip[aria-pressed="true"] {
+  background: var(--ios-blue);
+  color: #fff;
+}
+.chip .dot {
+  width: 8px; height: 8px; border-radius: 999px;
+  background: currentColor; opacity: 0.6;
+}
+
+/* Section labels */
+.section-label {
+  padding: 14px 20px 6px;
+  font-size: var(--f-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--app-fg-subtle);
+  font-weight: 700;
+  display: flex; align-items: center; gap: 6px;
+}
+
+/* Notes grid */
+.scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 120px;
+}
+.grid {
+  padding: 4px 14px 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  grid-auto-flow: dense;
+}
+.note {
+  background: var(--note-butter);
+  color: var(--app-fg);
+  border-radius: var(--radius-card);
+  padding: 12px 12px 10px;
+  min-height: 90px;
+  display: flex; flex-direction: column; gap: 6px;
+  cursor: pointer;
+  position: relative;
+  transition: transform 120ms ease;
+  overflow: hidden;
+  min-width: 0;
+}
+.note:active { transform: scale(0.98); }
+.note.c-butter { background: var(--note-butter); }
+.note.c-apricot { background: var(--note-apricot); }
+.note.c-rose { background: var(--note-rose); }
+.note.c-mauve { background: var(--note-mauve); }
+.note.c-sky { background: var(--note-sky); }
+.note.c-mint { background: var(--note-mint); }
+.note.c-sage { background: var(--note-sage); }
+.note.c-stone { background: var(--note-stone); }
+.note .n-title {
+  font-weight: 700; font-size: var(--f-body);
+  line-height: 1.2;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.note .n-body {
+  font-size: var(--f-caption);
+  color: var(--app-fg); opacity: 0.78;
+  line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.note .n-foot {
+  margin-top: auto;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: var(--f-micro);
+  color: var(--app-fg); opacity: 0.55;
+}
+.note .n-pin {
+  position: absolute; top: 8px; right: 8px;
+  width: 20px; height: 20px;
+  display: none;
+  color: var(--app-fg); opacity: 0.65;
+}
+.note.pinned .n-pin { display: block; }
+.note.tall { grid-row: span 2; }
+
+/* Checklist marks inside cards */
+.note .cl {
+  display: flex; align-items: flex-start; gap: 6px;
+  font-size: var(--f-caption);
+  opacity: 0.85;
+}
+.note .cl .box {
+  width: 13px; height: 13px; border-radius: 4px;
+  border: 1.5px solid currentColor; flex: 0 0 auto;
+  margin-top: 2px; opacity: 0.6;
+}
+.note .cl.done .box {
+  background: currentColor; opacity: 0.5;
+}
+.note .cl.done span { text-decoration: line-through; opacity: 0.5; }
+
+/* Empty state */
+.empty {
+  padding: 56px 24px;
+  text-align: center;
+  color: var(--app-fg-subtle);
+}
+.empty .big {
+  font-size: 42px; margin-bottom: 8px;
+  color: var(--app-fg-muted);
+}
+.empty h3 { margin: 0 0 4px; color: var(--app-fg); font-weight: 700; }
+.empty p { margin: 0; font-size: var(--f-caption); }
+
+/* Floating compose */
+.compose {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: 18px;
+  display: flex; justify-content: center;
+  pointer-events: none;
+  z-index: 4;
+}
+.compose button {
+  pointer-events: auto;
+  background: var(--ios-blue);
+  color: #fff;
+  border: 0;
+  width: 60px; height: 60px;
+  border-radius: 999px;
+  font-size: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 12px 28px -10px var(--ios-blue), 0 2px 4px rgba(0,0,0,0.2);
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 100ms ease;
+}
+.compose button:active { transform: scale(0.94); }
+
+/* Tab bar */
+.tabbar {
+  flex: 0 0 auto;
+  background: color-mix(in srgb, var(--app-surface) 85%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-top: 0.5px solid var(--app-sep);
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  padding: 6px 0 10px;
+}
+.tab {
+  background: none; border: 0;
+  color: var(--app-fg-subtle);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font-size: 10px; font-family: inherit; font-weight: 600;
+  cursor: pointer;
+  padding: 6px 2px;
+}
+.tab svg { width: 22px; height: 22px; }
+.tab[aria-current="page"] { color: var(--ios-blue); }
+
+/* Home indicator */
+.home-ind {
+  position: absolute;
+  left: 50%; transform: translateX(-50%);
+  bottom: 7px;
+  width: 134px; height: 5px; border-radius: 999px;
+  background: var(--home-ind);
+  z-index: 5;
+}
+
+/* Editor sheet */
+.sheet {
+  position: absolute;
+  inset: 0;
+  background: var(--app-bg);
+  display: flex; flex-direction: column;
+  transform: translateY(100%);
+  transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
+  z-index: 20;
+  border-radius: 42px;
+  overflow: hidden;
+}
+.sheet.open { transform: translateY(0); }
+.sheet .sheet-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 54px 16px 6px;
+  color: var(--ios-blue);
+  font-size: var(--f-headline);
+}
+.sheet .sheet-top button {
+  background: none; border: 0; color: var(--ios-blue);
+  font-family: inherit; font-size: var(--f-headline);
+  cursor: pointer; padding: 8px 4px;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.sheet .sheet-top .right { display: flex; gap: 6px; align-items: center; }
+.sheet .ed-palette {
+  display: flex; gap: 8px; padding: 4px 20px 10px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.sheet .ed-palette::-webkit-scrollbar { display: none; }
+.swatch {
+  flex: 0 0 auto;
+  width: 28px; height: 28px; border-radius: 999px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  background: var(--note-butter);
+}
+.swatch[aria-pressed="true"] {
+  border-color: var(--ios-blue);
+  transform: scale(1.08);
+}
+
+.editor {
+  flex: 1 1 auto; display: flex; flex-direction: column;
+  min-height: 0;
+  padding: 2px 20px 20px;
+}
+.editor .ed-title {
+  border: 0; outline: 0;
+  background: transparent;
+  color: var(--app-fg);
+  font-family: inherit;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  padding: 8px 0 6px;
+  width: 100%;
+}
+.editor .ed-title::placeholder { color: var(--app-fg-subtle); }
+.editor .ed-meta {
+  color: var(--app-fg-subtle); font-size: var(--f-caption);
+  padding: 2px 0 10px;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 0.5px solid var(--app-sep);
+  margin-bottom: 10px;
+}
+.editor .ed-body {
+  border: 0; outline: 0; background: transparent;
+  color: var(--app-fg);
+  font-family: inherit;
+  font-size: var(--f-headline);
+  line-height: 1.5;
+  width: 100%;
+  flex: 1 1 auto;
+  resize: none;
+  min-height: 100px;
+}
+.editor .ed-body::placeholder { color: var(--app-fg-subtle); }
+.editor .ed-toolbar {
+  display: flex; gap: 6px; align-items: center;
+  padding: 10px 0 0;
+  border-top: 0.5px solid var(--app-sep);
+  color: var(--ios-blue);
+  flex-wrap: wrap;
+}
+.editor .ed-toolbar button {
+  background: var(--app-chip); border: 0;
+  color: var(--ios-blue);
+  width: 36px; height: 36px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.editor .ed-toolbar .danger {
+  margin-left: auto;
+  color: var(--ios-red);
+}
+
+/* Settings sheet reuses sheet styles */
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--app-surface);
+  color: var(--app-fg);
+  font-size: var(--f-headline);
+}
+.settings-group {
+  margin: 10px 16px;
+  background: var(--app-surface);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.settings-group .settings-row + .settings-row {
+  border-top: 0.5px solid var(--app-sep);
+}
+.settings-group h4 {
+  margin: 20px 20px 6px;
+  font-size: var(--f-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--app-fg-subtle);
+  font-weight: 700;
+}
+.switch {
+  width: 48px; height: 28px; border-radius: 999px;
+  background: var(--app-sep-strong);
+  position: relative;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.switch::after {
+  content: ""; position: absolute;
+  top: 2px; left: 2px;
+  width: 24px; height: 24px; border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  transition: transform 180ms ease;
+}
+.switch[aria-pressed="true"] { background: var(--ios-green); }
+.switch[aria-pressed="true"]::after { transform: translateX(20px); }
+
+/* Toast */
+.toast {
+  position: absolute;
+  left: 50%; bottom: 110px; transform: translate(-50%, 20px);
+  background: color-mix(in srgb, var(--app-fg) 85%, transparent);
+  color: var(--app-bg);
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: var(--f-caption);
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 200ms ease, transform 200ms ease;
+  pointer-events: none;
+  z-index: 30;
+  white-space: nowrap;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Context menu (long press) */
+.ctxmenu {
+  position: absolute;
+  background: var(--app-surface);
+  border-radius: 14px;
+  box-shadow: 0 20px 40px -10px rgba(0,0,0,0.25), 0 0 0 0.5px var(--app-sep);
+  overflow: hidden;
+  z-index: 25;
+  min-width: 180px;
+  display: none;
+  backdrop-filter: blur(20px);
+}
+.ctxmenu.show { display: block; }
+.ctxmenu button {
+  width: 100%; text-align: left;
+  background: none; border: 0;
+  padding: 12px 14px;
+  font-family: inherit; font-size: var(--f-headline);
+  color: var(--app-fg);
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer;
+}
+.ctxmenu button + button { border-top: 0.5px solid var(--app-sep); }
+.ctxmenu button.danger { color: var(--ios-red); }
+.ctxmenu-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.001);
+  z-index: 24;
+  display: none;
+}
+.ctxmenu-backdrop.show { display: block; }
+
+/* About caption under device */
+.caption {
+  position: fixed;
+  left: 0; right: 0; bottom: 10px;
+  text-align: center;
+  color: var(--app-fg-subtle);
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+@media (max-width: 440px) {
+  body { padding-block: 10px; }
+  .device {
+    border-radius: 44px;
+    padding: 8px;
+    width: 100%;
+    max-width: 100%;
+    aspect-ratio: 390 / 820;
+  }
+  .screen { border-radius: 36px; }
+  .caption { display: none; }
+}
+</style>
+
+<div class="device" aria-label="iPhone running Keeper">
+  <div class="screen">
+    <div class="island" aria-hidden="true"></div>
+
+    <div class="status" aria-hidden="true">
+      <span id="clock">9:41</span>
+      <span class="glyphs">
+        <span class="signal"><span></span><span></span><span></span><span></span></span>
+        <span class="wifi"></span>
+        <span class="battery"></span>
+      </span>
+    </div>
+
+    <div class="app" id="app">
+      <!-- Home view -->
+      <div class="view" id="viewHome">
+        <div class="topbar">
+          <button type="button" id="btnSettings" aria-label="Settings">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Settings
+          </button>
+          <div class="right">
+            <button type="button" id="btnTheme" aria-label="Toggle theme">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            </button>
+            <button type="button" id="btnSort" aria-label="Sort">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="title-row">
+          <h1>Keeper</h1>
+          <p class="subtitle" id="subCount">All your notes</p>
+        </div>
+
+        <label class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="qInput" type="search" placeholder="Search notes" autocomplete="off" />
+        </label>
+
+        <div class="chips" id="chips">
+          <!-- filled by JS -->
+        </div>
+
+        <div class="scroll" id="scroll">
+          <div id="pinnedSection" hidden>
+            <div class="section-label">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2l-1 1 2 2-4 4H7l-1 1 4 4-5 5v2h2l5-5 4 4 1-1V11l4-4 2 2 1-1z"/></svg>
+              Pinned
+            </div>
+            <div class="grid" id="pinnedGrid"></div>
+          </div>
+          <div id="otherSection">
+            <div class="section-label" id="otherLabel">All notes</div>
+            <div class="grid" id="grid"></div>
+          </div>
+          <div class="empty" id="emptyState" hidden>
+            <div class="big">
+              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>
+            </div>
+            <h3>No notes yet</h3>
+            <p>Tap the + button to add your first.</p>
+          </div>
+        </div>
+
+        <div class="compose">
+          <button type="button" id="btnNew" aria-label="New note">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Editor sheet -->
+      <div class="sheet" id="sheetEditor" aria-hidden="true">
+        <div class="sheet-top">
+          <button type="button" id="btnBack">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            Notes
+          </button>
+          <div class="right">
+            <button type="button" id="btnPin" aria-label="Pin">
+              <svg id="icPin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2l-1 1 2 2-4 4H7l-1 1 4 4-5 5v2h2l5-5 4 4 1-1V11l4-4 2 2 1-1z"/></svg>
+            </button>
+            <button type="button" id="btnDone" style="font-weight:600;">Done</button>
+          </div>
+        </div>
+        <div class="ed-palette" id="palette"></div>
+        <div class="editor">
+          <input id="edTitle" class="ed-title" placeholder="Title" />
+          <div class="ed-meta"><span id="edDate">Just now</span><span>·</span><span id="edCount">0 characters</span></div>
+          <textarea id="edBody" class="ed-body" placeholder="Start writing…"></textarea>
+          <div class="ed-toolbar">
+            <button type="button" id="tbCheck" aria-label="Add checklist item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="7" height="7" rx="1.5"/><path d="m5.5 8.5 1.5 1.5L9 7"/><path d="M14 7h7M14 13h7M3 19h18"/></svg></button>
+            <button type="button" id="tbDash" aria-label="Bullet"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="7" r="1.5"/><circle cx="5" cy="12" r="1.5"/><circle cx="5" cy="17" r="1.5"/><path d="M10 7h11M10 12h11M10 17h11"/></svg></button>
+            <button type="button" id="tbDate" aria-label="Insert date"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></button>
+            <button type="button" id="btnDelete" class="danger" aria-label="Delete"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings sheet -->
+      <div class="sheet" id="sheetSettings" aria-hidden="true">
+        <div class="sheet-top">
+          <button type="button" id="btnCloseSettings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            Back
+          </button>
+          <div style="font-weight:600;color:var(--app-fg);">Settings</div>
+          <div style="width:60px;"></div>
+        </div>
+        <div class="scroll" style="padding-bottom:30px;">
+          <div class="settings-group">
+            <h4 style="margin-top:0;">Appearance</h4>
+            <div class="settings-row">
+              <span>Dark mode</span>
+              <div class="switch" id="swDark" role="switch" aria-pressed="false" tabindex="0"></div>
+            </div>
+            <div class="settings-row">
+              <span>Compact grid</span>
+              <div class="switch" id="swCompact" role="switch" aria-pressed="false" tabindex="0"></div>
+            </div>
+          </div>
+          <div class="settings-group">
+            <h4>Notes</h4>
+            <div class="settings-row">
+              <span>Sort by</span>
+              <span id="sortLabel" style="color:var(--app-fg-subtle);">Modified</span>
+            </div>
+            <div class="settings-row">
+              <span>Show pinned on top</span>
+              <div class="switch" id="swPinned" role="switch" aria-pressed="true" tabindex="0"></div>
+            </div>
+          </div>
+          <div class="settings-group">
+            <h4>Data</h4>
+            <div class="settings-row" id="rowExport" style="cursor:pointer;color:var(--ios-blue);">
+              <span>Export as JSON</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            </div>
+            <div class="settings-row" id="rowSeed" style="cursor:pointer;color:var(--ios-blue);">
+              <span>Load sample notes</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            </div>
+            <div class="settings-row" id="rowClear" style="cursor:pointer;color:var(--ios-red);">
+              <span>Delete all notes</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            </div>
+          </div>
+          <div style="padding:20px;text-align:center;color:var(--app-fg-subtle);font-size:12px;">
+            Keeper · Visual prototype<br>
+            A tap-through of the real app experience.
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab bar -->
+      <nav class="tabbar">
+        <button class="tab" aria-current="page" data-tab="notes">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+          Notes
+        </button>
+        <button class="tab" data-tab="pinned">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2l-1 1 2 2-4 4H7l-1 1 4 4-5 5v2h2l5-5 4 4 1-1V11l4-4 2 2 1-1z"/></svg>
+          Pinned
+        </button>
+        <button class="tab" data-tab="archive">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>
+          Archive
+        </button>
+        <button class="tab" data-tab="me">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+          Me
+        </button>
+      </nav>
+
+      <!-- Context menu -->
+      <div class="ctxmenu-backdrop" id="ctxBackdrop"></div>
+      <div class="ctxmenu" id="ctxMenu">
+        <button type="button" data-act="pin">Pin / Unpin <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2l-1 1 2 2-4 4H7l-1 1 4 4-5 5v2h2l5-5 4 4 1-1V11l4-4 2 2 1-1z"/></svg></button>
+        <button type="button" data-act="color">Change color <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg></button>
+        <button type="button" data-act="duplicate">Duplicate <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="12" height="12" rx="2"/><rect x="3" y="3" width="12" height="12" rx="2"/></svg></button>
+        <button type="button" data-act="share">Share <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><rect x="4" y="15" width="16" height="6" rx="1"/></svg></button>
+        <button type="button" class="danger" data-act="delete">Delete</button>
+      </div>
+
+      <div class="toast" id="toast">Saved</div>
+      <div class="home-ind" aria-hidden="true"></div>
+    </div>
+  </div>
+</div>
+
+<div class="caption">Tap a card to open · + to add · Long-press for options</div>
+
+<script>
+(function () {
+  const STORAGE_KEY = "keeper_ios_notes_v1";
+  const SETTINGS_KEY = "keeper_ios_settings_v1";
+
+  const COLORS = [
+    { id: "butter", label: "Butter" },
+    { id: "apricot", label: "Apricot" },
+    { id: "rose", label: "Rose" },
+    { id: "mauve", label: "Mauve" },
+    { id: "sky", label: "Sky" },
+    { id: "mint", label: "Mint" },
+    { id: "sage", label: "Sage" },
+    { id: "stone", label: "Stone" },
+  ];
+  const COLOR_VAR = {
+    butter: "--note-butter", apricot: "--note-apricot", rose: "--note-rose",
+    mauve: "--note-mauve", sky: "--note-sky", mint: "--note-mint",
+    sage: "--note-sage", stone: "--note-stone",
+  };
+  const FILTERS = [
+    { id: "all", label: "All" },
+    { id: "today", label: "Today" },
+    { id: "week", label: "This week" },
+    { id: "ideas", label: "Ideas" },
+    { id: "tasks", label: "Tasks" },
+    { id: "travel", label: "Travel" },
+    { id: "quotes", label: "Quotes" },
+  ];
+
+  const SAMPLE = [
+    {
+      id: "n1",
+      title: "Morning intentions",
+      body: "Walk 20 minutes before anything else.\nFinish the sketchbook sprint.\nCall mum.",
+      color: "butter", pinned: true, tag: "ideas",
+      created: Date.now() - 1000 * 60 * 60 * 2,
+      updated: Date.now() - 1000 * 60 * 10,
+    },
+    {
+      id: "n2",
+      title: "Grocery",
+      body: "[x] Rye bread\n[x] Oat milk\n[ ] Blueberries\n[ ] Olive oil\n[ ] Fresh basil",
+      color: "mint", pinned: true, tag: "tasks",
+      created: Date.now() - 1000 * 60 * 60 * 25,
+      updated: Date.now() - 1000 * 60 * 60 * 3,
+    },
+    {
+      id: "n3",
+      title: "Lisbon notes",
+      body: "Pastéis de Belém worth the queue.\nTram 28 only at sunrise.\nTime Out Market = tourist trap. Head to Cervejaria Ramiro.",
+      color: "apricot", pinned: false, tag: "travel",
+      created: Date.now() - 1000 * 60 * 60 * 48,
+      updated: Date.now() - 1000 * 60 * 60 * 20,
+    },
+    {
+      id: "n4",
+      title: "",
+      body: "“The purpose of life is to be defeated by greater and greater things.” — Rilke",
+      color: "mauve", pinned: false, tag: "quotes",
+      created: Date.now() - 1000 * 60 * 60 * 72,
+      updated: Date.now() - 1000 * 60 * 60 * 72,
+    },
+    {
+      id: "n5",
+      title: "App ideas",
+      body: "Lecture-to-flashcards.\nOffline tide tracker for surfers.\nA quieter todo app that doesn’t count streaks.",
+      color: "sky", pinned: false, tag: "ideas",
+      created: Date.now() - 1000 * 60 * 60 * 100,
+      updated: Date.now() - 1000 * 60 * 60 * 95,
+    },
+    {
+      id: "n6",
+      title: "Running playlist",
+      body: "Fontaines D.C. — Starburster\nBig Thief — Vampire Empire\nFloating Points — Birth4000",
+      color: "rose", pinned: false, tag: "ideas",
+      created: Date.now() - 1000 * 60 * 60 * 120,
+      updated: Date.now() - 1000 * 60 * 60 * 110,
+    },
+    {
+      id: "n7",
+      title: "Weekend",
+      body: "[ ] Fix bike brakes\n[ ] Pay electricity\n[x] Call Sam",
+      color: "sage", pinned: false, tag: "tasks",
+      created: Date.now() - 1000 * 60 * 60 * 160,
+      updated: Date.now() - 1000 * 60 * 60 * 150,
+    },
+    {
+      id: "n8",
+      title: "Book stack",
+      body: "The Mezzanine · N. Baker\nStoner · J. Williams\nBluets · M. Nelson",
+      color: "stone", pinned: false, tag: "ideas",
+      created: Date.now() - 1000 * 60 * 60 * 200,
+      updated: Date.now() - 1000 * 60 * 60 * 190,
+    },
+  ];
+
+  function uid() {
+    return "n" + Math.random().toString(36).slice(2, 9);
+  }
+
+  function readStore() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (_) { return null; }
+  }
+  function writeStore(notes) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(notes)); } catch (_) {}
+  }
+  function readSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      if (!raw) return defaults();
+      return Object.assign(defaults(), JSON.parse(raw));
+    } catch (_) { return defaults(); }
+  }
+  function writeSettings(s) {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (_) {}
+  }
+  function defaults() {
+    return { dark: null, compact: false, pinnedOnTop: true, sort: "modified", filter: "all", tab: "notes" };
+  }
+
+  let notes = readStore();
+  if (!notes) { notes = SAMPLE.slice(); writeStore(notes); }
+  let settings = readSettings();
+  let activeNoteId = null;
+  let searchQ = "";
+
+  const el = (id) => document.getElementById(id);
+  const scroll = el("scroll");
+  const grid = el("grid");
+  const pinnedGrid = el("pinnedGrid");
+  const chipsRow = el("chips");
+
+  /* Clock */
+  function fmtTime() {
+    const d = new Date();
+    const h = d.getHours();
+    const m = String(d.getMinutes()).padStart(2, "0");
+    return (h % 12 || 12) + ":" + m;
+  }
+  function updateClock() { el("clock").textContent = fmtTime(); }
+  updateClock();
+  setInterval(updateClock, 20000);
+
+  /* Theme application */
+  function applyTheme() {
+    const root = document.documentElement;
+    if (settings.dark === true) root.setAttribute("data-theme", "dark");
+    else if (settings.dark === false) root.setAttribute("data-theme", "light");
+    else root.removeAttribute("data-theme");
+    const isDark = settings.dark === true || (settings.dark === null && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    el("swDark").setAttribute("aria-pressed", isDark ? "true" : "false");
+  }
+  applyTheme();
+
+  /* Chips */
+  function renderChips() {
+    chipsRow.innerHTML = "";
+    FILTERS.forEach((f) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.textContent = f.label;
+      b.setAttribute("aria-pressed", settings.filter === f.id ? "true" : "false");
+      b.addEventListener("click", () => {
+        settings.filter = f.id;
+        writeSettings(settings);
+        renderChips();
+        renderNotes();
+      });
+      chipsRow.appendChild(b);
+    });
+  }
+  renderChips();
+
+  /* Format helpers */
+  function timeAgo(ts) {
+    const diff = Date.now() - ts;
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return m + "m";
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + "h";
+    const d = Math.floor(h / 24);
+    if (d < 7) return d + "d";
+    const dt = new Date(ts);
+    return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function matches(n) {
+    if (searchQ) {
+      const q = searchQ.toLowerCase();
+      if (!(n.title || "").toLowerCase().includes(q) &&
+          !(n.body || "").toLowerCase().includes(q)) return false;
+    }
+    if (settings.filter === "all") return true;
+    if (settings.filter === "today") {
+      const d = new Date(n.updated);
+      const t = new Date();
+      return d.toDateString() === t.toDateString();
+    }
+    if (settings.filter === "week") {
+      return Date.now() - n.updated < 1000 * 60 * 60 * 24 * 7;
+    }
+    return n.tag === settings.filter;
+  }
+
+  function compareNotes(a, b) {
+    if (settings.sort === "created") return b.created - a.created;
+    if (settings.sort === "alpha") return (a.title || a.body).localeCompare(b.title || b.body);
+    return b.updated - a.updated;
+  }
+
+  function renderOneCard(n) {
+    const card = document.createElement("div");
+    card.className = "note c-" + n.color + (n.pinned ? " pinned" : "");
+    const bodyLen = (n.body || "").length + (n.title || "").length;
+    if (bodyLen > 160) card.classList.add("tall");
+    card.dataset.id = n.id;
+
+    const pinSvg = `<svg class="n-pin" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2l-1 1 2 2-4 4H7l-1 1 4 4-5 5v2h2l5-5 4 4 1-1V11l4-4 2 2 1-1z"/></svg>`;
+    let inner = pinSvg;
+    if (n.title) {
+      inner += `<div class="n-title"></div>`;
+    }
+    inner += `<div class="n-body"></div>`;
+    inner += `<div class="n-foot"><span class="n-time">${timeAgo(n.updated)}</span><span class="n-tag">${n.tag || ""}</span></div>`;
+    card.innerHTML = inner;
+
+    if (n.title) card.querySelector(".n-title").textContent = n.title;
+
+    const bodyEl = card.querySelector(".n-body");
+    const lines = (n.body || "").split("\n");
+    const hasChecklist = lines.some((l) => /^\[[\sx]\]/i.test(l.trim()));
+    if (hasChecklist) {
+      bodyEl.innerHTML = "";
+      lines.slice(0, 6).forEach((raw) => {
+        const line = raw.trim();
+        const m = line.match(/^\[([\sx])\]\s*(.*)$/i);
+        if (m) {
+          const row = document.createElement("div");
+          row.className = "cl" + (m[1].toLowerCase() === "x" ? " done" : "");
+          row.innerHTML = `<div class="box"></div><span></span>`;
+          row.querySelector("span").textContent = m[2];
+          bodyEl.appendChild(row);
+        } else if (line) {
+          const row = document.createElement("div");
+          row.textContent = line;
+          bodyEl.appendChild(row);
+        }
+      });
+    } else {
+      bodyEl.textContent = n.body || "";
+    }
+
+    attachCardEvents(card, n.id);
+    return card;
+  }
+
+  function renderNotes() {
+    grid.innerHTML = "";
+    pinnedGrid.innerHTML = "";
+    const filtered = notes.filter(matches);
+    const sorted = filtered.slice().sort(compareNotes);
+    let pinned = [];
+    let others = [];
+    if (settings.pinnedOnTop) {
+      pinned = sorted.filter((n) => n.pinned);
+      others = sorted.filter((n) => !n.pinned);
+    } else {
+      others = sorted;
+    }
+    pinned.forEach((n) => pinnedGrid.appendChild(renderOneCard(n)));
+    others.forEach((n) => grid.appendChild(renderOneCard(n)));
+
+    el("pinnedSection").hidden = pinned.length === 0;
+    el("otherLabel").textContent = pinned.length ? "Others" : "All notes";
+    el("emptyState").hidden = !(pinned.length === 0 && others.length === 0);
+    el("subCount").textContent = filtered.length === 1
+      ? "1 note"
+      : filtered.length + " notes";
+
+    const compact = settings.compact;
+    document.querySelectorAll(".grid").forEach((g) => {
+      g.style.gridTemplateColumns = compact ? "1fr 1fr 1fr" : "1fr 1fr";
+      g.style.gap = compact ? "8px" : "10px";
+    });
+  }
+  renderNotes();
+
+  /* Card events */
+  let pressTimer = null;
+  function attachCardEvents(card, id) {
+    card.addEventListener("click", (e) => {
+      if (card.dataset.suppressClick) {
+        card.dataset.suppressClick = "";
+        return;
+      }
+      openNote(id);
+    });
+    card.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      showCtxMenu(id, e.clientX, e.clientY);
+      card.dataset.suppressClick = "1";
+    });
+    card.addEventListener("pointerdown", (e) => {
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(() => {
+        const rect = card.getBoundingClientRect();
+        showCtxMenu(id, rect.left + rect.width / 2, rect.top + rect.height / 2);
+        card.dataset.suppressClick = "1";
+      }, 450);
+    });
+    ["pointerup", "pointerleave", "pointercancel"].forEach((ev) =>
+      card.addEventListener(ev, () => clearTimeout(pressTimer))
+    );
+  }
+
+  /* Search */
+  el("qInput").addEventListener("input", (e) => {
+    searchQ = e.target.value;
+    renderNotes();
+  });
+
+  /* New note */
+  el("btnNew").addEventListener("click", () => {
+    const colorPool = COLORS.map((c) => c.id);
+    const now = Date.now();
+    const n = {
+      id: uid(),
+      title: "",
+      body: "",
+      color: colorPool[Math.floor(Math.random() * colorPool.length)],
+      pinned: false,
+      tag: settings.filter !== "all" && settings.filter !== "today" && settings.filter !== "week" ? settings.filter : "ideas",
+      created: now, updated: now,
+    };
+    notes.unshift(n);
+    writeStore(notes);
+    renderNotes();
+    openNote(n.id, true);
+  });
+
+  /* Editor */
+  const sheetEditor = el("sheetEditor");
+  const edTitle = el("edTitle");
+  const edBody = el("edBody");
+  const edDate = el("edDate");
+  const edCount = el("edCount");
+  const palette = el("palette");
+
+  function renderPalette(active) {
+    palette.innerHTML = "";
+    COLORS.forEach((c) => {
+      const sw = document.createElement("button");
+      sw.type = "button";
+      sw.className = "swatch";
+      sw.setAttribute("aria-pressed", c.id === active ? "true" : "false");
+      sw.setAttribute("aria-label", c.label);
+      sw.style.background = `var(${COLOR_VAR[c.id]})`;
+      sw.addEventListener("click", () => {
+        const n = findNote(activeNoteId);
+        if (!n) return;
+        n.color = c.id;
+        n.updated = Date.now();
+        writeStore(notes);
+        renderPalette(c.id);
+      });
+      palette.appendChild(sw);
+    });
+  }
+
+  function findNote(id) { return notes.find((n) => n.id === id); }
+
+  function openNote(id, focusTitle) {
+    activeNoteId = id;
+    const n = findNote(id);
+    if (!n) return;
+    edTitle.value = n.title || "";
+    edBody.value = n.body || "";
+    edDate.textContent = "Updated " + timeAgo(n.updated);
+    edCount.textContent = (edBody.value.length) + " characters";
+    renderPalette(n.color);
+    el("icPin").setAttribute("fill", n.pinned ? "currentColor" : "none");
+    el("icPin").setAttribute("stroke", n.pinned ? "none" : "currentColor");
+    sheetEditor.classList.add("open");
+    sheetEditor.setAttribute("aria-hidden", "false");
+    setTimeout(() => { if (focusTitle) edTitle.focus(); }, 320);
+  }
+  function closeNote() {
+    saveActive();
+    sheetEditor.classList.remove("open");
+    sheetEditor.setAttribute("aria-hidden", "true");
+    activeNoteId = null;
+    renderNotes();
+  }
+  el("btnBack").addEventListener("click", closeNote);
+  el("btnDone").addEventListener("click", () => { closeNote(); toast("Saved"); });
+
+  function saveActive() {
+    if (!activeNoteId) return;
+    const n = findNote(activeNoteId);
+    if (!n) return;
+    const changed = n.title !== edTitle.value || n.body !== edBody.value;
+    n.title = edTitle.value;
+    n.body = edBody.value;
+    if (changed) n.updated = Date.now();
+    writeStore(notes);
+  }
+
+  edTitle.addEventListener("input", () => {
+    const n = findNote(activeNoteId); if (!n) return;
+    edDate.textContent = "Updated just now";
+    edCount.textContent = edBody.value.length + " characters";
+  });
+  edBody.addEventListener("input", () => {
+    edDate.textContent = "Updated just now";
+    edCount.textContent = edBody.value.length + " characters";
+  });
+
+  el("btnPin").addEventListener("click", () => {
+    const n = findNote(activeNoteId); if (!n) return;
+    n.pinned = !n.pinned;
+    n.updated = Date.now();
+    el("icPin").setAttribute("fill", n.pinned ? "currentColor" : "none");
+    el("icPin").setAttribute("stroke", n.pinned ? "none" : "currentColor");
+    writeStore(notes);
+    toast(n.pinned ? "Pinned" : "Unpinned");
+  });
+
+  el("btnDelete").addEventListener("click", () => {
+    if (!activeNoteId) return;
+    notes = notes.filter((n) => n.id !== activeNoteId);
+    writeStore(notes);
+    activeNoteId = null;
+    sheetEditor.classList.remove("open");
+    sheetEditor.setAttribute("aria-hidden", "true");
+    renderNotes();
+    toast("Deleted");
+  });
+
+  el("tbCheck").addEventListener("click", () => insertAtCursor(edBody, "\n[ ] "));
+  el("tbDash").addEventListener("click", () => insertAtCursor(edBody, "\n• "));
+  el("tbDate").addEventListener("click", () => {
+    const d = new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    insertAtCursor(edBody, d + " ");
+  });
+
+  function insertAtCursor(ta, text) {
+    const start = ta.selectionStart || 0;
+    const end = ta.selectionEnd || 0;
+    ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
+    ta.selectionStart = ta.selectionEnd = start + text.length;
+    ta.focus();
+    edCount.textContent = ta.value.length + " characters";
+  }
+
+  /* Context menu */
+  const ctxMenu = el("ctxMenu");
+  const ctxBackdrop = el("ctxBackdrop");
+  let ctxTargetId = null;
+
+  function showCtxMenu(id, x, y) {
+    ctxTargetId = id;
+    const app = el("app");
+    const bounds = app.getBoundingClientRect();
+    let cx = x - bounds.left;
+    let cy = y - bounds.top;
+    ctxMenu.style.left = "0px";
+    ctxMenu.style.top = "0px";
+    ctxMenu.classList.add("show");
+    ctxBackdrop.classList.add("show");
+    const w = ctxMenu.offsetWidth;
+    const h = ctxMenu.offsetHeight;
+    cx = Math.min(Math.max(10, cx - w / 2), bounds.width - w - 10);
+    cy = Math.min(Math.max(60, cy), bounds.height - h - 60);
+    ctxMenu.style.left = cx + "px";
+    ctxMenu.style.top = cy + "px";
+  }
+  function hideCtxMenu() {
+    ctxMenu.classList.remove("show");
+    ctxBackdrop.classList.remove("show");
+    ctxTargetId = null;
+  }
+  ctxBackdrop.addEventListener("click", hideCtxMenu);
+
+  ctxMenu.querySelectorAll("button").forEach((b) => {
+    b.addEventListener("click", () => {
+      const act = b.dataset.act;
+      const n = findNote(ctxTargetId);
+      if (!n) { hideCtxMenu(); return; }
+      if (act === "pin") {
+        n.pinned = !n.pinned;
+        n.updated = Date.now();
+        toast(n.pinned ? "Pinned" : "Unpinned");
+      } else if (act === "color") {
+        const idx = COLORS.findIndex((c) => c.id === n.color);
+        n.color = COLORS[(idx + 1) % COLORS.length].id;
+        n.updated = Date.now();
+        toast("Color changed");
+      } else if (act === "duplicate") {
+        const copy = JSON.parse(JSON.stringify(n));
+        copy.id = uid();
+        copy.created = Date.now();
+        copy.updated = Date.now();
+        copy.pinned = false;
+        notes.unshift(copy);
+        toast("Duplicated");
+      } else if (act === "share") {
+        toast("Share sheet (demo)");
+      } else if (act === "delete") {
+        notes = notes.filter((x) => x.id !== n.id);
+        toast("Deleted");
+      }
+      writeStore(notes);
+      hideCtxMenu();
+      renderNotes();
+    });
+  });
+
+  /* Settings sheet */
+  const sheetSettings = el("sheetSettings");
+  el("btnSettings").addEventListener("click", () => {
+    sheetSettings.classList.add("open");
+    sheetSettings.setAttribute("aria-hidden", "false");
+  });
+  el("btnCloseSettings").addEventListener("click", () => {
+    sheetSettings.classList.remove("open");
+    sheetSettings.setAttribute("aria-hidden", "true");
+  });
+
+  function bindSwitch(id, key, after) {
+    const s = el(id);
+    const sync = () => s.setAttribute("aria-pressed", settings[key] ? "true" : "false");
+    sync();
+    s.addEventListener("click", () => {
+      settings[key] = !settings[key];
+      writeSettings(settings);
+      sync();
+      if (after) after();
+    });
+  }
+  // Dark mode switch cycles between on/off (null state collapses to current)
+  const swDark = el("swDark");
+  function syncDarkSwitch() {
+    const isDark = settings.dark === true || (settings.dark === null && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    swDark.setAttribute("aria-pressed", isDark ? "true" : "false");
+  }
+  syncDarkSwitch();
+  swDark.addEventListener("click", () => {
+    const isDark = settings.dark === true || (settings.dark === null && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    settings.dark = !isDark;
+    writeSettings(settings);
+    applyTheme();
+    renderNotes();
+  });
+  bindSwitch("swCompact", "compact", renderNotes);
+  bindSwitch("swPinned", "pinnedOnTop", renderNotes);
+
+  el("btnTheme").addEventListener("click", () => {
+    const isDark = settings.dark === true || (settings.dark === null && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    settings.dark = !isDark;
+    writeSettings(settings);
+    applyTheme();
+    renderNotes();
+    syncDarkSwitch();
+    toast(settings.dark ? "Dark mode" : "Light mode");
+  });
+
+  el("btnSort").addEventListener("click", () => {
+    const order = ["modified", "created", "alpha"];
+    const next = order[(order.indexOf(settings.sort) + 1) % order.length];
+    settings.sort = next;
+    writeSettings(settings);
+    el("sortLabel").textContent = next === "modified" ? "Modified" : next === "created" ? "Created" : "A to Z";
+    renderNotes();
+    toast("Sorted by " + (next === "modified" ? "modified" : next === "created" ? "created" : "name"));
+  });
+
+  // Settings actions
+  el("rowSeed").addEventListener("click", () => {
+    notes = SAMPLE.slice();
+    writeStore(notes);
+    renderNotes();
+    toast("Sample notes loaded");
+  });
+  el("rowClear").addEventListener("click", () => {
+    notes = [];
+    writeStore(notes);
+    renderNotes();
+    toast("All notes deleted");
+  });
+  el("rowExport").addEventListener("click", () => {
+    const data = JSON.stringify(notes, null, 2);
+    navigator.clipboard && navigator.clipboard.writeText(data).then(
+      () => toast("Copied to clipboard"),
+      () => toast("Export failed")
+    );
+  });
+
+  /* Tabs */
+  document.querySelectorAll(".tab").forEach((t) => {
+    t.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach((x) => x.removeAttribute("aria-current"));
+      t.setAttribute("aria-current", "page");
+      const tab = t.dataset.tab;
+      if (tab === "pinned") settings.filter = "all";
+      if (tab === "pinned") {
+        notes.forEach(() => {});
+        document.getElementById("qInput").value = "";
+        searchQ = "";
+        settings.filter = "all";
+        settings.pinnedOnTop = true;
+        writeSettings(settings);
+        renderChips();
+        renderNotes();
+        scroll.scrollTo({ top: 0, behavior: "smooth" });
+      } else if (tab === "archive") {
+        toast("Archive view (demo)");
+      } else if (tab === "me") {
+        el("btnSettings").click();
+      }
+    });
+  });
+
+  /* Toast */
+  let toastTimer = null;
+  function toast(msg) {
+    const t = el("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("show"), 1500);
+  }
+
+  /* Prefers-color-scheme live sync */
+  if (window.matchMedia) {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    try { mq.addEventListener("change", () => { if (settings.dark === null) applyTheme(); }); }
+    catch (_) { mq.addListener && mq.addListener(() => { if (settings.dark === null) applyTheme(); }); }
+  }
+
+  /* Esc closes sheets */
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (ctxMenu.classList.contains("show")) hideCtxMenu();
+      else if (sheetEditor.classList.contains("open")) closeNote();
+      else if (sheetSettings.classList.contains("open")) el("btnCloseSettings").click();
+    }
+  });
+
+  // Set sort label
+  el("sortLabel").textContent = settings.sort === "modified" ? "Modified" : settings.sort === "created" ? "Created" : "A to Z";
+})();
+</script>
