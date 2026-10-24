@@ -1235,7 +1235,7 @@
   // ==================================================================
   // Столкновения и высота земли
   // ==================================================================
-  const CAVE = { n: 56, cell: 2.6, y: -400 };
+  const CAVE = { n: 56, cell: 2.6, y: -400, ceil: 8 };
   const SWIM_DEPTH = 1.05;
 
   function groundY(x, z) { return inCave ? CAVE.y : getHeight(x, z); }
@@ -1655,9 +1655,10 @@
   // ==================================================================
   // Пещеры: лабиринт из клеток, железо, кристаллы, пещерные зомби
   // ==================================================================
-  const caveFloorMat = new THREE.MeshLambertMaterial({ color: 0x7a7482, map: detailTexture(64, 0.6, 1.0, 21) });
-  caveFloorMat.map.repeat.set(30, 30);
   const caveWallMat = lam(0xffffff);
+  const caveRockMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: detailTexture(64, 0.62, 1.0, 23) });
+  caveRockMat.map.repeat.set(36, 36);
+  const caveCeilMat = new THREE.MeshLambertMaterial({ color: 0x2f2a26, map: caveRockMat.map });
   const crystalMats = [new THREE.MeshBasicMaterial({ color: 0x5ef0ff }), new THREE.MeshBasicMaterial({ color: 0xb57bff })];
   const oreMat = new THREE.MeshBasicMaterial({ color: 0xe0892f });
   const exitMat = new THREE.MeshBasicMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.1, depthWrite: false, side: THREE.DoubleSide });
@@ -1715,33 +1716,60 @@
     const n = CAVE.n, C = CAVE.cell, Y = CAVE.y;
     const data = { index, grid: gen.grid, resources: [], exit: { x: caveCenter(gen.entry.c), z: caveCenter(gen.entry.r) }, flow: null, flowCell: -1, map: null };
 
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(n * C, n * C), caveFloorMat);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = Y;
-    floor.receiveShadow = true;
-    floor.userData.ownGeometry = true;
-    caveGroup.add(floor);
-
     const isWall = (r, c) => c < 0 || r < 0 || c >= n || r >= n || gen.grid[r * n + c] === 1;
-    const openNear = (r, c) => { for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if (!isWall(r + dr, c + dc)) return true; return false; };
-    const wallBatch = new Batch(GEO.rock, caveWallMat, { colored: true, cast: false, receive: true });
-    const spikeBatch = new Batch(GEO.cone, caveWallMat, { colored: true });
     const shade = (hex) => { const c = new THREE.Color(hex); c.offsetHSL(0, 0, (rng() - 0.5) * 0.12); return c; };
+
+    // Пол и стены — одна сплошная скала: там, где клетка-стена, поверхность поднимается до потолка
+    const wallness = (x, z) => {
+      const fc = x / C + n / 2 - 0.5, fr = z / C + n / 2 - 0.5;
+      const c0 = Math.floor(fc), r0 = Math.floor(fr), tx = fc - c0, tz = fr - r0;
+      const v = (r, c) => (isWall(r, c) ? 1 : 0);
+      return lerp(lerp(v(r0, c0), v(r0, c0 + 1), tx), lerp(v(r0 + 1, c0), v(r0 + 1, c0 + 1), tx), tz);
+    };
+    const seed = 500 + index * 7;
+    const SUB = 3, border = 4, size = (n + border * 2) * C;
+    const rockGeo = new THREE.PlaneGeometry(size, size, (n + border * 2) * SUB, (n + border * 2) * SUB);
+    rockGeo.rotateX(-Math.PI / 2);
+    const pos = rockGeo.attributes.position, colors = new Float32Array(pos.count * 3);
+    const floorCol = new THREE.Color(0x5a5048), wallCol = new THREE.Color(0x857a70), topCol = new THREE.Color(0x3b342f), mineral = new THREE.Color(0x6a5a8a), col = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i);
+      const w = clamp(wallness(x, z) + (vnoise(x * 0.55, z * 0.55, seed) - 0.5) * 0.3, 0, 1);
+      const k = smoothstep(0.32, 0.68, w);
+      const bump = (vnoise(x * 0.9, z * 0.9, seed + 1) - 0.5) * 0.25;
+      const h = k * (CAVE.ceil + 0.6 + vnoise(x * 0.3, z * 0.3, seed + 2) * 1.2) + bump * (1 - k);
+      pos.setY(i, h);
+      col.copy(floorCol).lerp(wallCol, smoothstep(0.05, 0.4, k)).lerp(topCol, smoothstep(0.55, 1, k));
+      if (vnoise(x * 0.25, z * 0.25, seed + 3) > 0.72) col.lerp(mineral, 0.35);
+      col.multiplyScalar(0.85 + vnoise(x * 2.1, z * 2.1, seed + 4) * 0.3);
+      colors[i * 3] = col.r; colors[i * 3 + 1] = col.g; colors[i * 3 + 2] = col.b;
+    }
+    rockGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    rockGeo.computeVertexNormals();
+    const rock = new THREE.Mesh(rockGeo, caveRockMat);
+    rock.position.y = Y;
+    rock.receiveShadow = true;
+    rock.userData.ownGeometry = true;
+    caveGroup.add(rock);
+
+    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(size, size), caveCeilMat);
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.y = Y + CAVE.ceil;
+    ceiling.userData.ownGeometry = true;
+    caveGroup.add(ceiling);
+
+    // Сталагмиты у стен и сталактиты на потолке
+    const spikeBatch = new Batch(GEO.cone, caveWallMat, { colored: true });
     const edgeFloors = [];
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      if (isWall(r, c)) continue;
       const x = caveCenter(c), z = caveCenter(r);
-      if (isWall(r, c)) {
-        if (!openNear(r, c)) continue;
-        const h = 2.6 + rng() * 2.2;
-        wallBatch.add(matrixOf(x, Y + h / 2 - 0.3, z, C * 0.85, h / 1.6, C * 0.85, rng() * TAU, rng() * 0.3, rng() * 0.3), shade(0x8a8494));
-      } else {
-        let adj = 0;
-        for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) adj += isWall(r + dr, c + dc) ? 1 : 0;
-        if (adj > 0 && Math.hypot(c - gen.entry.c, r - gen.entry.r) > 5) edgeFloors.push({ r, c, x, z });
-        if (adj > 0 && rng() < 0.12) spikeBatch.add(matrixOf(x + (rng() - 0.5) * 1.4, Y, z + (rng() - 0.5) * 1.4, 0.25, 0.8 + rng() * 1.2, 0.25, rng() * 3), shade(0x6f6878));
-      }
+      let adj = 0;
+      for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) adj += isWall(r + dr, c + dc) ? 1 : 0;
+      if (adj > 0 && Math.hypot(c - gen.entry.c, r - gen.entry.r) > 5) edgeFloors.push({ r, c, x, z });
+      if (adj > 0 && rng() < 0.14) spikeBatch.add(matrixOf(x + (rng() - 0.5) * 1.2, Y - 0.1, z + (rng() - 0.5) * 1.2, 0.28, 0.8 + rng() * 1.3, 0.28, rng() * 3), shade(0x6a6476));
+      if (rng() < 0.07) spikeBatch.add(matrixOf(x + (rng() - 0.5) * 1.6, Y + CAVE.ceil + 0.1, z + (rng() - 0.5) * 1.6, 0.3, 0.9 + rng() * 1.6, 0.3, rng() * 3, Math.PI), shade(0x4a4552));
     }
-    wallBatch.build(caveGroup);
     if (spikeBatch.items.length) spikeBatch.build(caveGroup);
 
     // Железо и кристаллы у стен
@@ -2101,11 +2129,11 @@
     if (inCave) {
       scene.background.setRGB(0.01, 0.01, 0.015);
       scene.fog.near = 6; scene.fog.far = P.lantern ? 55 : 34;
-      hemi.intensity = P.lantern ? 0.62 : 0.42; hemi.color.setHex(0x9aa6d8); hemi.groundColor.setHex(0x2a2633);
+      hemi.intensity = P.lantern ? 0.45 : 0.36; hemi.color.setHex(0xa79c94); hemi.groundColor.setHex(0x2a2420);
       sun.intensity = 0;
       playerLight.intensity = P.lantern ? 2.6 : 1.3;
       playerLight.distance = P.lantern ? 26 : 13;
-      playerLight.color.setHex(P.lantern ? 0xbff6ff : 0xffd2a0);
+      playerLight.color.setHex(P.lantern ? 0xfff0d8 : 0xffd2a0);
       playerLight.position.set(P.x, P.y + 2.6, P.z);
       nightK = 1;
       return;
@@ -2276,14 +2304,26 @@
   // ==================================================================
   const camLook = new THREE.Vector3();
   function updateCamera(dt, snap, orbit) {
-    const dist = orbit ? 24 : inCave ? Math.min(settings.dist, 11) : settings.dist;
-    const pitch = orbit ? 0.3 : camPitch;
+    const dist = orbit ? 24 : inCave ? Math.min(settings.dist, 8) : settings.dist;
+    const pitch = orbit ? 0.3 : inCave ? Math.min(camPitch, 0.7) : camPitch;
     const lookY = P.y + 1.3;
     const horiz = Math.cos(pitch) * dist;
-    const tx = P.x + Math.sin(camYaw) * horiz, tz = P.z + Math.cos(camYaw) * horiz;
+    let tx = P.x + Math.sin(camYaw) * horiz, tz = P.z + Math.cos(camYaw) * horiz;
     let ty = lookY + Math.sin(pitch) * dist;
     if (!inCave) ty = Math.max(ty, getHeight(tx, tz) + 0.7, WATER + 0.4);
-    else ty = Math.max(ty, CAVE.y + 0.5);
+    else if (cave) {
+      // Камера не залезает в скалу и не поднимается выше потолка
+      ty = clamp(ty, CAVE.y + 0.6, CAVE.y + CAVE.ceil - 0.8);
+      const steps = 28;
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps, px = P.x + (tx - P.x) * t, pz = P.z + (tz - P.z) * t;
+        if (caveSolid(caveCellOf(px), caveCellOf(pz))) {
+          const t2 = Math.max(0.08, (i - 2) / steps);
+          tx = P.x + (tx - P.x) * t2; tz = P.z + (tz - P.z) * t2; ty = lookY + (ty - lookY) * t2;
+          break;
+        }
+      }
+    }
     const k = snap ? 1 : 1 - Math.exp(-dt * 14);
     camera.position.x += (tx - camera.position.x) * k;
     camera.position.y += (ty - camera.position.y) * k;
