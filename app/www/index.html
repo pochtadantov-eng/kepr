@@ -148,7 +148,7 @@
     position: absolute;
     right: calc(16px + max(env(safe-area-inset-right, 0px), var(--cut-r, 0px)));
     bottom: calc(18px + max(env(safe-area-inset-bottom, 0px), var(--cut-b, 0px)));
-    width: 172px; height: 166px; pointer-events: none;
+    width: 150px; height: 150px; pointer-events: none;
   }
   .round {
     position: absolute; pointer-events: auto; border-radius: 50%; border: 1px solid var(--line);
@@ -164,8 +164,9 @@
   }
   .round.big.idle { background: var(--panel); border-color: var(--line); box-shadow: none; }
   .round.small { width: 60px; height: 60px; font-size: 12px; }
-  #btnEat { right: 104px; bottom: 6px; }
-  #btnCraft { right: 16px; bottom: 102px; }
+  #btnJump { right: 0; bottom: 0; width: 76px; height: 76px; font-size: 13px; }
+  #btnEat { right: 88px; bottom: 4px; }
+  #btnCraft { right: 8px; bottom: 88px; }
   #btnCraft.ready { border-color: var(--ember); color: var(--ember); }
   .round em {
     position: absolute; top: -4px; right: -4px; min-width: 22px; height: 22px; padding: 0 5px;
@@ -179,6 +180,14 @@
     font-size: 12px; color: var(--muted); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
   }
   @media (pointer: coarse) { #keys { display: none; } }
+  #actHint {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: calc(22px + max(env(safe-area-inset-bottom, 0px), var(--cut-b, 0px)));
+    padding: 7px 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line);
+    font-size: 13px; color: var(--muted); white-space: nowrap;
+  }
+  #actHint b { color: var(--ember); font-weight: 700; }
+  @media (pointer: fine) { #actHint { bottom: calc(40px + env(safe-area-inset-bottom, 0px)); } }
 
   /* ---------- Крафт ---------- */
   .sheet {
@@ -273,7 +282,6 @@
     background: var(--panel); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   }
   #mapLabel { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; padding-left: 4px; }
-  #btnJump { right: 104px; bottom: 78px; }
   #btnBag {
     pointer-events: auto; position: relative; width: 56px; height: 56px; border-radius: 14px; cursor: pointer;
     border: 1px solid var(--line); background: var(--panel); color: var(--ember); display: grid; place-items: center;
@@ -367,9 +375,9 @@
     <button id="btnCraft" class="round small" type="button">Крафт</button>
     <button id="btnEat" class="round small" type="button">Есть<em id="eatCount">0</em></button>
     <button id="btnJump" class="round small" type="button">Прыжок</button>
-    <button id="btnAction" class="round big" type="button"><span id="actLabel">Удар</span></button>
   </div>
-  <div id="keys">WASD — ходить · пробел — прыжок · E — действие · F — есть · I — рюкзак · C — крафт · Esc — пауза · мышь — камера</div>
+  <div id="actHint" hidden>Тап по экрану — <b id="actLabel">Удар</b></div>
+  <div id="keys">WASD — ходить · пробел — прыжок · E или клик — действие · F — есть · I — рюкзак · C — крафт · Esc — пауза · мышь — камера</div>
 </div>
 
 <div id="bag" class="sheet" hidden>
@@ -413,7 +421,7 @@
         <button class="btn primary" id="btnNewYes" type="button">Начать</button>
       </div>
     </div>
-    <span class="version">Версия 0.9</span>
+    <span class="version">Версия 0.10</span>
   </div>
 </div>
 
@@ -423,7 +431,7 @@
     <ul class="rules">
       <li><b>Ходить</b>Левая половина экрана: поставь палец и веди. На компьютере — WASD.</li>
       <li><b>Камера</b>Правая половина экрана: веди пальцем влево-вправо и вверх-вниз. На компьютере — мышь.</li>
-      <li><b>Кнопка</b>Большая оранжевая кнопка рубит, добывает, собирает, поит и бьёт. Её можно зажать.</li>
+      <li><b>Тап</b>Короткий тап по экрану рубит, добывает, собирает, поит и бьёт. Держи палец на месте — действие повторяется.</li>
       <li><b>Прыжок</b>Кнопка «Прыжок» или пробел. В глубокой воде ты плывёшь.</li>
       <li><b>Пещеры</b>Ищи тёмные проходы в горах и просто заходи внутрь. Внутри железо, кристаллы и пещерные зомби. Выход — столб света.</li>
       <li><b>Выживание</b>Голод и жажда падают. Ешь ягоды, пей у озера. Здоровье растёт, когда ты сыт и напился.</li>

@@ -147,9 +147,16 @@
       f.Q.value = o.q || 1;
       const g = ctx.createGain();
       envelope(g, t, o.attack || 0.005, dur, o.gain || 0.3);
-      src.connect(f); f.connect(g); g.connect(sfx);
+      src.connect(f); f.connect(g); panned(g, o.pan).connect(sfx);
       src.start(t, Math.random() * 0.7);
       src.stop(t + dur + 0.05);
+    }
+    function panned(node, pan) {
+      if (pan === undefined || !ctx.createStereoPanner) return node;
+      const p = ctx.createStereoPanner();
+      p.pan.value = pan;
+      node.connect(p);
+      return p;
     }
     function tone(o) {
       const t = ctx.currentTime + (o.delay || 0), dur = o.dur || 0.1;
@@ -165,7 +172,7 @@
         f.type = 'lowpass'; f.frequency.value = o.lowpass;
         g.connect(f); out = f;
       }
-      osc.connect(g); out.connect(sfx);
+      osc.connect(g); panned(out, o.pan).connect(sfx);
       osc.start(t);
       osc.stop(t + dur + 0.05);
     }
@@ -228,21 +235,97 @@
       cave() { noise({ dur: 1.1, type: 'lowpass', freq: 320, gain: 0.25, attack: 0.25 }); },
     };
 
+    // Птицы: несколько разных голосов с разных сторон
+    function bird() {
+      const pan = rand(-0.9, 0.9), v = 0.05 + Math.random() * 0.03, kind = Math.floor(Math.random() * 4);
+      if (kind === 0) {
+        const f = 3200 + Math.random() * 900;
+        for (let i = 0; i < 9; i++) tone({ freq: f, freqEnd: f * 1.18, dur: 0.035, gain: v * 0.8, delay: i * 0.045, pan });
+      } else if (kind === 1) {
+        tone({ freq: 2200, freqEnd: 3400, dur: 0.18, gain: v, pan });
+        tone({ freq: 3400, freqEnd: 2600, dur: 0.22, gain: v, delay: 0.2, pan });
+        tone({ freq: 2900, freqEnd: 3700, dur: 0.12, gain: v * 0.8, delay: 0.46, pan });
+      } else if (kind === 2) {
+        const f = 4200 + Math.random() * 600;
+        for (let i = 0; i < 3; i++) tone({ freq: f, freqEnd: f - 1500, dur: 0.06, gain: v, delay: i * 0.13, pan });
+        tone({ freq: f - 800, freqEnd: f + 400, dur: 0.14, gain: v, delay: 0.42, pan });
+      } else {
+        // Кукушка вдалеке
+        for (let i = 0; i < 2; i++) {
+          tone({ freq: 740, freqEnd: 725, dur: 0.22, gain: v * 0.6, delay: i * 0.9, attack: 0.03, pan });
+          tone({ freq: 590, freqEnd: 580, dur: 0.32, gain: v * 0.6, delay: i * 0.9 + 0.28, attack: 0.03, pan });
+        }
+      }
+    }
+    // Капля воды в пещере (эхо добавляется само)
+    function drip() {
+      const pan = rand(-0.85, 0.85), f = 1300 + Math.random() * 1500, v = 0.05 + Math.random() * 0.07;
+      tone({ freq: f, freqEnd: f * 0.42, dur: 0.07, gain: v, pan });
+      tone({ freq: f * 1.6, freqEnd: f * 0.7, dur: 0.045, gain: v * 0.35, delay: 0.008, pan });
+      if (Math.random() < 0.45) tone({ freq: f * 0.92, freqEnd: f * 0.4, dur: 0.06, gain: v * 0.6, delay: 0.22 + Math.random() * 0.25, pan });
+    }
+    // Жутковатые звуки из глубины пещеры
+    function eerie() {
+      const pan = rand(-1, 1), kind = Math.floor(Math.random() * 5);
+      if (kind === 0) {
+        tone({ freq: 95, freqEnd: 68, dur: 2.6, type: 'sawtooth', gain: 0.05, attack: 0.9, lowpass: 280, pan });
+        tone({ freq: 190, freqEnd: 140, dur: 2.2, gain: 0.02, attack: 0.8, delay: 0.2, pan });
+      } else if (kind === 1) {
+        noise({ dur: 1.8, type: 'bandpass', freq: 2200, freqEnd: 800, q: 5, gain: 0.05, attack: 0.6, pan });
+        noise({ dur: 1.2, type: 'bandpass', freq: 1500, freqEnd: 2600, q: 6, gain: 0.03, attack: 0.4, delay: 0.9, pan });
+      } else if (kind === 2) {
+        for (let i = 0; i < 6; i++) noise({ dur: 0.04, type: 'highpass', freq: 1400 + Math.random() * 1500, gain: 0.12 / (i + 1), delay: i * (0.07 + Math.random() * 0.12), pan });
+      } else if (kind === 3) {
+        tone({ freq: 55, freqEnd: 45, dur: 0.18, gain: 0.16, pan });
+        tone({ freq: 55, freqEnd: 45, dur: 0.18, gain: 0.12, delay: 0.32, pan });
+      } else {
+        tone({ freq: 260, freqEnd: 190, dur: 1.4, type: 'sawtooth', gain: 0.025, attack: 0.3, lowpass: 900, pan });
+      }
+    }
+    // Низкий гул, пока игрок в пещере
+    let drone = null;
+    function startDrone() {
+      if (drone) return;
+      const t = ctx.currentTime, g = ctx.createGain(), f = ctx.createBiquadFilter();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.06, t + 3);
+      f.type = 'lowpass'; f.frequency.value = 240;
+      const o1 = ctx.createOscillator(), o2 = ctx.createOscillator(), lfo = ctx.createOscillator(), lfoGain = ctx.createGain();
+      o1.frequency.value = 55; o2.type = 'sawtooth'; o2.frequency.value = 41.6;
+      lfo.frequency.value = 0.07; lfoGain.gain.value = 90;
+      lfo.connect(lfoGain); lfoGain.connect(f.frequency);
+      o1.connect(f); o2.connect(f); f.connect(g); g.connect(master);
+      o1.start(); o2.start(); lfo.start();
+      drone = { g, nodes: [o1, o2, lfo] };
+    }
+    function stopDrone() {
+      if (!drone) return;
+      const d = drone, t = ctx.currentTime;
+      drone = null;
+      d.g.gain.cancelScheduledValues(t);
+      d.g.gain.setValueAtTime(Math.max(0.0001, d.g.gain.value), t);
+      d.g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+      d.nodes.forEach((n) => n.stop(t + 1.6));
+    }
+
+    let eerieT = 6;
     function ambient(dt, mode, nightK) {
       if (!ready || !settings.sound) return;
       ambT -= dt;
-      if (ambT > 0) return;
       if (mode === 'cave') {
-        tone({ freq: 1100 + Math.random() * 900, freqEnd: 380, dur: 0.09, gain: 0.05 });
-        ambT = rand(1.4, 4);
-      } else if (nightK > 0.6) {
-        const f = 4100 + Math.random() * 500;
-        for (let i = 0; i < 6; i++) tone({ freq: f, dur: 0.025, gain: 0.012, delay: i * 0.055 });
+        eerieT -= dt;
+        if (ambT <= 0) { drip(); ambT = rand(0.5, 3); }
+        if (eerieT <= 0) { eerie(); eerieT = rand(9, 22); }
+        return;
+      }
+      if (ambT > 0) return;
+      if (nightK > 0.6) {
+        const f = 4100 + Math.random() * 500, pan = rand(-0.8, 0.8);
+        for (let i = 0; i < 6; i++) tone({ freq: f, dur: 0.025, gain: 0.015, delay: i * 0.055, pan });
         ambT = rand(0.7, 2.2);
       } else {
-        const n = 2 + Math.floor(Math.random() * 3), f = 2300 + Math.random() * 1200;
-        for (let i = 0; i < n; i++) tone({ freq: f, freqEnd: f + 900 + Math.random() * 500, dur: 0.07, gain: 0.025, delay: i * 0.11 });
-        ambT = rand(2.5, 7);
+        bird();
+        ambT = rand(1.8, 5.5);
       }
     }
 
@@ -250,8 +333,13 @@
       init,
       applyVolume,
       ambient,
+      pause(on) { if (ctx) (on ? ctx.suspend() : ctx.resume()).catch(() => {}); },
       play(name, a, b) { if (ready && LIB[name]) { try { LIB[name](a, b); } catch (e) { /* звук не критичен */ } } },
-      setCave(on) { if (ready) echoOut.gain.setTargetAtTime(on ? 0.35 : 0, ctx.currentTime, 0.1); },
+      setCave(on) {
+        if (!ready) return;
+        echoOut.gain.setTargetAtTime(on ? 0.35 : 0, ctx.currentTime, 0.1);
+        if (on) startDrone(); else stopDrone();
+      },
     };
   })();
 
@@ -951,18 +1039,46 @@
 
   const hero = makeHuman({ skin: lam(0xf0c8a0), shirt: lam(0x3a78c9), pants: lam(0x2b3448), arms: lam(0x3a78c9) });
   const hair = new THREE.Mesh(GEO.box, lam(0x4a2f1c)); hair.scale.set(0.5, 0.14, 0.5); hair.position.y = 0.25; hero.head.add(hair);
-  function makeSword(bladeMat, length) {
+  // Меч: клинок ромбовидного сечения сужается к острию, гарда с шариками, обмотанная рукоять, навершие
+  function makeSword(o) {
     const s = new THREE.Group();
-    for (const [mat, sx, sy, sz, z] of [[bladeMat, 0.06, 0.12, length, 0.12 + length / 2], [MAT.hilt, 0.32, 0.06, 0.08, 0.1], [MAT.hilt, 0.07, 0.07, 0.26, -0.06]]) {
-      const part = new THREE.Mesh(GEO.box, mat); part.scale.set(sx, sy, sz); part.position.z = z; part.castShadow = true; s.add(part);
-    }
-    s.position.set(0, -0.7, 0.04);
+    const L = o.length, W = o.width;
+    const part = (geo, mat, z, rx, sx, sy, sz) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.z = z;
+      m.rotation.x = rx || 0;
+      if (sx) m.scale.set(sx, sy, sz);
+      m.castShadow = true;
+      s.add(m);
+      return m;
+    };
+    const bodyLen = L * 0.8, tipLen = L * 0.2;
+    part(new THREE.CylinderGeometry(W * 0.82, W, bodyLen, 4), o.blade, 0.17 + bodyLen / 2, Math.PI / 2, 0.26, 1, 1);
+    part(new THREE.CylinderGeometry(0, W * 0.82, tipLen, 4), o.blade, 0.17 + bodyLen + tipLen / 2, Math.PI / 2, 0.26, 1, 1);
+    part(new THREE.BoxGeometry(0.012, W * 0.5, bodyLen * 0.85), o.fuller, 0.17 + bodyLen * 0.45);
+    part(GEO.box, o.guard, 0.13, 0, 0.09, 0.46, 0.07);
+    for (const y of [-0.24, 0.24]) { const k = part(new THREE.SphereGeometry(0.045, 8, 6), o.guard, 0.13); k.position.y = y; }
+    part(new THREE.CylinderGeometry(0.036, 0.036, 0.24, 8), o.grip, 0.0, Math.PI / 2);
+    for (const z of [-0.08, -0.02, 0.04]) part(new THREE.TorusGeometry(0.038, 0.008, 4, 10), o.guard, z);
+    part(new THREE.SphereGeometry(0.058, 10, 8), o.guard, -0.15);
+    s.position.set(0, -0.72, 0.02);
     s.visible = false;
     hero.armR.add(s);
     return s;
   }
-  const swordMesh = makeSword(MAT.blade, 1.0);
-  const ironSwordMesh = makeSword(MAT.ironBlade, 1.25);
+  const steel = new THREE.MeshPhongMaterial({ color: 0xd2d7de, shininess: 110, specular: 0xaab4c0 });
+  const swordMesh = makeSword({
+    length: 1.0, width: 0.1, blade: steel,
+    fuller: new THREE.MeshPhongMaterial({ color: 0x8e959e, shininess: 60 }),
+    guard: new THREE.MeshPhongMaterial({ color: 0x8a6a42, shininess: 40 }),
+    grip: lam(0x3e2617),
+  });
+  const ironSwordMesh = makeSword({
+    length: 1.3, width: 0.115, blade: MAT.ironBlade,
+    fuller: new THREE.MeshPhongMaterial({ color: 0x5f7488, shininess: 80 }),
+    guard: new THREE.MeshPhongMaterial({ color: 0xd4a52a, shininess: 90, specular: 0xffe08a }),
+    grip: lam(0x241612),
+  });
   const lanternMesh = new THREE.Group();
   (function () {
     const frame = new THREE.Mesh(GEO.box, MAT.hilt); frame.scale.set(0.2, 0.06, 0.2); frame.position.y = 0.14; lanternMesh.add(frame);
@@ -987,6 +1103,7 @@
       h.armL.rotation.x = -swing * 0.8;
       h.armR.rotation.x = swing * 0.8;
     }
+    h.armR.rotation.z = 0;
     return Math.abs(Math.sin(walkPhase)) * 0.06 * walkAmount;
   }
 
@@ -1121,6 +1238,7 @@
   }
   setInterval(() => { if (screen === 'game') persist(); }, 5000);
   document.addEventListener('visibilitychange', () => {
+    Sound.pause(document.hidden);
     if (document.hidden && screen === 'game') { persist(); showScreen('pause'); }
   });
 
@@ -1147,20 +1265,27 @@
   // ==================================================================
   const keys = {};
   const joy = { id: null, sx: 0, sy: 0, x: 0, y: 0 };
-  const look = { id: null, lastX: 0, lastY: 0 };
-  let actionHeld = false, jumpQueued = false;
+  const look = { id: null, lastX: 0, lastY: 0, sx: 0, sy: 0, t0: 0, moved: false, holdTimer: 0 };
+  let actionHeld = false, jumpQueued = false, tapAt = -1;
+  const TAP = { move: 12, time: 300, hold: 280 };
+  // Короткий тап без движения пальца — действие (рубить, добывать, бить...). Палец держишь на месте — действие повторяется.
+  function queueTap() { if (playing()) tapAt = performance.now(); }
   const touchLayer = $('touch'), joyEl = $('joy'), knob = $('knob');
   const playing = () => screen === 'game' && !craftOpen && !bagOpen;
 
   touchLayer.addEventListener('pointerdown', (e) => {
     if (!playing()) return;
     if (e.pointerType !== 'mouse' && e.clientX < window.innerWidth * 0.5 && joy.id === null) {
-      joy.id = e.pointerId; joy.sx = e.clientX; joy.sy = e.clientY; joy.x = 0; joy.y = 0;
+      joy.id = e.pointerId; joy.sx = e.clientX; joy.sy = e.clientY; joy.x = 0; joy.y = 0; joy.t0 = performance.now(); joy.moved = false;
       joyEl.style.left = e.clientX + 'px'; joyEl.style.top = e.clientY + 'px';
       knob.style.transform = '';
       joyEl.hidden = false;
     } else if (look.id === null) {
-      look.id = e.pointerId; look.lastX = e.clientX; look.lastY = e.clientY;
+      look.id = e.pointerId; look.lastX = look.sx = e.clientX; look.lastY = look.sy = e.clientY;
+      look.t0 = performance.now(); look.moved = false;
+      const id = e.pointerId;
+      clearTimeout(look.holdTimer);
+      look.holdTimer = setTimeout(() => { if (look.id === id && !look.moved && playing()) actionHeld = true; }, TAP.hold);
     }
     try { touchLayer.setPointerCapture(e.pointerId); } catch (err) { /* не критично */ }
   });
@@ -1168,10 +1293,16 @@
     if (e.pointerId === joy.id) {
       let dx = e.clientX - joy.sx, dy = e.clientY - joy.sy;
       const d = Math.hypot(dx, dy), max = 50;
+      if (d > TAP.move) joy.moved = true;
       if (d > max) { dx = dx / d * max; dy = dy / d * max; }
       joy.x = dx / max; joy.y = dy / max;
       knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
     } else if (e.pointerId === look.id) {
+      if (!look.moved) {
+        if (Math.hypot(e.clientX - look.sx, e.clientY - look.sy) < TAP.move) return;
+        look.moved = true;
+        actionHeld = false;
+      }
       const k = 0.007 * settings.sens;
       camYaw -= (e.clientX - look.lastX) * k;
       camPitch = clamp(camPitch + (e.clientY - look.lastY) * k * (settings.invert ? -1 : 1), CFG.pitchMin, CFG.pitchMax);
@@ -1179,8 +1310,17 @@
     }
   });
   function endPointer(e) {
-    if (e.pointerId === joy.id) { joy.id = null; joy.x = 0; joy.y = 0; joyEl.hidden = true; }
-    if (e.pointerId === look.id) look.id = null;
+    const quick = (t0) => performance.now() - t0 < TAP.time;
+    if (e.pointerId === joy.id) {
+      if (e.type === 'pointerup' && !joy.moved && quick(joy.t0)) queueTap();
+      joy.id = null; joy.x = 0; joy.y = 0; joyEl.hidden = true;
+    }
+    if (e.pointerId === look.id) {
+      clearTimeout(look.holdTimer);
+      if (e.type === 'pointerup' && !look.moved && !actionHeld && quick(look.t0)) queueTap();
+      actionHeld = false;
+      look.id = null;
+    }
   }
   function releaseAllInput() {
     joy.id = null; joy.x = 0; joy.y = 0; joyEl.hidden = true;
@@ -1221,11 +1361,6 @@
   });
   window.addEventListener('blur', releaseAllInput);
 
-  const btnAction = $('btnAction');
-  btnAction.addEventListener('pointerdown', (e) => { e.preventDefault(); if (playing()) actionHeld = true; });
-  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) btnAction.addEventListener(ev, () => { actionHeld = false; });
-  btnAction.addEventListener('keydown', (e) => { if (e.code === 'Enter') actionHeld = true; });
-  btnAction.addEventListener('keyup', (e) => { if (e.code === 'Enter') actionHeld = false; });
   $('btnJump').addEventListener('pointerdown', (e) => { e.preventDefault(); if (playing()) jumpQueued = true; });
   $('btnEat').addEventListener('click', () => eat());
   $('btnCraft').addEventListener('click', () => toggleCraft());
@@ -2408,7 +2543,9 @@
     }
 
     P.actCd -= dt;
-    if (actionHeld && P.actCd <= 0) doAction();
+    const tapped = tapAt > 0 && performance.now() - tapAt < 450;
+    if (tapAt > 0 && !tapped) tapAt = -1;
+    if ((actionHeld || tapped) && P.actCd <= 0) { tapAt = -1; doAction(); }
     P.swingT = Math.max(0, P.swingT - dt);
     if (!inCave) updateGrass(false);
   }
@@ -2573,7 +2710,7 @@
     hpFill: $('hpFill'), hpVal: $('hpVal'), foodFill: $('foodFill'), foodVal: $('foodVal'),
     waterFill: $('waterFill'), waterVal: $('waterVal'),
     kills: $('kills'), bagCount: $('bagCount'),
-    actLabel: $('actLabel'), eatCount: $('eatCount'), craft: $('btnCraft'), vignette: $('vignette'), mapLabel: $('mapLabel'),
+    actLabel: $('actLabel'), actHint: $('actHint'), eatCount: $('eatCount'), craft: $('btnCraft'), vignette: $('vignette'), mapLabel: $('mapLabel'),
   };
   let hudTimer = 0, mapTimer = 0;
   function setText(el, v) { v = String(v); if (el.textContent !== v) el.textContent = v; }
@@ -2604,7 +2741,7 @@
     if (bagOpen && bagDirty) renderBag();
     const ctx = P.dead ? { label: '—', idle: true } : context();
     setText(hud.actLabel, ctx.label);
-    btnAction.classList.toggle('idle', !!ctx.idle);
+    hud.actHint.hidden = !!ctx.idle;
     hud.craft.classList.toggle('ready', RECIPES.some((r) => canAfford(r.cost) && !owned(r.id)));
     updateCraftSheet();
   }
@@ -2651,7 +2788,7 @@
     saveStats();
     updateCamera(0, true, false);
     showScreen('game');
-    toast('Подойди к дереву и нажми «Рубить»', 'good');
+    toast('Подойди к дереву и нажми на экран', 'good');
   }
   function continueGame() {
     const data = readJson(KEYS.save, null);
@@ -2757,7 +2894,12 @@
       hero.g.rotation.x = 0;
       const bob = animateHuman(hero, P.walk, P.walkAmt, false, P.swimming);
       if (!P.grounded && !P.swimming) { hero.legL.rotation.x = 0.5; hero.legR.rotation.x = -0.3; }
-      if (P.swingT > 0) hero.armR.rotation.x = -Math.sin((1 - P.swingT / 0.3) * Math.PI) * 2.0;
+      if (P.swingT > 0) {
+        // Взмах дугой: рука поднимается и проходит сверху вниз наискосок
+        const t = 1 - P.swingT / 0.3;
+        hero.armR.rotation.x = -2.4 + t * 2.6 - Math.sin(t * Math.PI) * 0.4;
+        hero.armR.rotation.z = Math.sin(t * Math.PI) * 0.7;
+      }
       hero.g.position.set(P.x, P.y + (P.grounded && !P.swimming ? bob : 0), P.z);
     }
 
@@ -2805,6 +2947,8 @@
       time(t, night) { W.t = t; W.night = !!night; },
       cave(i) { const e = caveEntrances[i || 0]; P.x = e.ix; P.z = e.iz; enterCave(e); },
       give(k, n) { invAdd(k, n); },
+      equip(w) { P.weapon = w; refreshEquipment(); },
+      swing() { P.swingT = 0.3; },
       cam(yaw, pitch, dist) { camYaw = yaw; camPitch = pitch; if (dist) settings.dist = dist; },
       state() { return { inCave, x: P.x, z: P.z, y: P.y, swimming: P.swimming, zombies: zombies.length, res: resources.length }; },
     };
