@@ -1,9 +1,21 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Долгая ночь</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&family=Unbounded:wght@600;800&display=swap">
+<meta name="description" content="3D-выживание: днём собирай ресурсы, ночью отбивайся от зомби.">
+<meta name="theme-color" content="#0a0f24">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Долгая ночь">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="fonts/fonts.css">
 <style>
-  /* Один экран: 3D-мир на весь экран, поверх него HUD из тёмных «угольных» плашек с акцентом цвета углей костра. */
+  /* Один экран: 3D-мир на весь экран, поверх него HUD и меню из тёмных «угольных» плашек с акцентом цвета углей костра. */
   :root {
     --panel: rgba(24, 20, 17, 0.74);
     --panel-solid: #1c1814;
@@ -25,16 +37,20 @@
     color-scheme: dark;
   }
   [hidden] { display: none !important; }
-  html, body { height: 100%; overflow: hidden; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
   body {
-    background: #0d1210;
+    background: #0a0f24;
     color: var(--ink);
     font-family: var(--font-ui);
+    font-size: 14px;
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
   }
+  button, input, select { font-family: inherit; }
   #app, #touch { position: fixed; inset: 0; }
   #app canvas { display: block; width: 100%; height: 100%; }
   #touch { touch-action: none; }
@@ -44,6 +60,7 @@
     background: radial-gradient(ellipse at center, transparent 45%, rgba(190, 20, 20, 0.75) 100%);
   }
 
+  /* ---------- HUD ---------- */
   #hud { position: fixed; inset: 0; pointer-events: none; }
   .tl {
     position: absolute;
@@ -95,6 +112,17 @@
   .ic.stone { background: var(--stone); border-radius: 4px 6px 3px 5px; }
   .ic.berry { background: var(--berry); border-radius: 50%; }
 
+  #btnPause {
+    pointer-events: auto; width: 44px; height: 36px; border-radius: 10px; margin-bottom: 4px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer;
+    display: grid; place-items: center;
+  }
+  #btnPause::before {
+    content: ""; width: 12px; height: 14px;
+    background: linear-gradient(90deg, var(--ink) 0 4px, transparent 4px 8px, var(--ink) 8px 12px);
+  }
+  #btnPause:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+
   #toasts {
     position: absolute; left: 50%; transform: translateX(-50%);
     top: calc(22% + env(safe-area-inset-top, 0px));
@@ -129,7 +157,7 @@
   }
   .round {
     position: absolute; pointer-events: auto; border-radius: 50%; border: 1px solid var(--line);
-    background: var(--panel); color: var(--ink); font-family: var(--font-ui); font-weight: 700;
+    background: var(--panel); color: var(--ink); font-weight: 700;
     display: grid; place-items: center; cursor: pointer; touch-action: none;
   }
   .round:focus-visible { outline: 2px solid var(--ember); outline-offset: 3px; }
@@ -157,10 +185,12 @@
   }
   @media (pointer: coarse) { #keys { display: none; } }
 
+  /* ---------- Крафт ---------- */
   .sheet {
     position: fixed; left: 50%; transform: translateX(-50%);
     bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     width: min(calc(100vw - 24px), 420px);
+    max-height: calc(100% - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow-y: auto;
     background: var(--panel-solid); border: 1px solid var(--line); border-radius: 16px;
     padding: 14px; display: flex; flex-direction: column; gap: 10px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
@@ -171,6 +201,7 @@
     width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: transparent;
     color: var(--ink); font-size: 22px; cursor: pointer;
   }
+  #recipes { display: flex; flex-direction: column; gap: 8px; }
   .recipe {
     display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
     padding: 10px 12px; border-radius: 12px; background: rgba(255, 236, 214, 0.05); border: 1px solid var(--line);
@@ -182,43 +213,76 @@
   .cost span.miss { color: #ff8277; }
   .recipe button {
     grid-column: 2; grid-row: 1 / span 3; min-width: 92px; height: 44px; border-radius: 10px; border: 0;
-    background: var(--ember); color: #2a1408; font-family: var(--font-ui); font-weight: 700; font-size: 14px; cursor: pointer;
+    background: var(--ember); color: #2a1408; font-weight: 700; font-size: 14px; cursor: pointer;
   }
   .recipe button:disabled { background: rgba(255, 236, 214, 0.1); color: var(--muted); cursor: default; }
-  .recipe button:focus-visible, .cta:focus-visible, .x:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+  .recipe button:focus-visible, .btn:focus-visible, .x:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
 
+  /* ---------- Меню и окна ---------- */
   .overlay {
-    position: fixed; inset: 0; display: grid; place-items: center; padding: 24px;
-    padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px));
-    background: radial-gradient(ellipse at 50% 70%, rgba(201, 90, 28, 0.28), transparent 60%), rgba(8, 10, 14, 0.72);
+    position: fixed; inset: 0; display: grid; place-items: center; overflow-y: auto;
+    padding: calc(20px + env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px))
+      calc(20px + env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+    background: radial-gradient(ellipse at 50% 80%, rgba(201, 90, 28, 0.22), transparent 60%), rgba(8, 10, 20, 0.62);
   }
-  .card { max-width: 420px; display: flex; flex-direction: column; gap: 14px; text-align: center; align-items: center; }
+  .overlay.menu { background: linear-gradient(180deg, rgba(8, 10, 24, 0.15) 0%, rgba(8, 10, 24, 0.55) 55%, rgba(8, 10, 24, 0.85) 100%); }
+  .card { width: min(100%, 380px); display: flex; flex-direction: column; gap: 14px; align-items: stretch; text-align: center; }
   .card h1 {
-    margin: 0; font-family: var(--font-display); font-weight: 800; font-size: clamp(34px, 10vw, 54px);
-    line-height: 1; letter-spacing: -0.01em; text-wrap: balance;
+    margin: 0; font-family: var(--font-display); font-weight: 800; font-size: clamp(38px, 12vw, 60px);
+    line-height: 0.95; letter-spacing: -0.01em; text-wrap: balance;
   }
-  .card h1 .lit { color: var(--ember); text-shadow: 0 0 24px rgba(255, 138, 61, 0.55); }
-  .card .lead { margin: 0; font-size: 16px; color: var(--muted); text-wrap: balance; }
-  .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; text-align: left; }
-  .rules li { display: flex; gap: 10px; align-items: baseline; }
-  .rules b { color: var(--ember); min-width: 56px; font-weight: 700; }
-  .stats { display: grid; grid-template-columns: auto auto; gap: 4px 18px; font-size: 16px; font-variant-numeric: tabular-nums; }
-  .stats dt { color: var(--muted); text-align: right; }
-  .stats dd { margin: 0; font-weight: 700; text-align: left; }
-  .cta {
-    margin-top: 6px; height: 56px; padding: 0 40px; border-radius: 28px; border: 0; cursor: pointer;
-    background: radial-gradient(circle at 35% 30%, var(--ember), var(--ember-deep)); color: #fff4e8;
-    font-family: var(--font-display); font-weight: 800; font-size: 18px; letter-spacing: 0.02em;
+  .card h1 .lit { display: block; color: var(--ember); text-shadow: 0 0 28px rgba(255, 138, 61, 0.6); }
+  .card h2 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 26px; }
+  .card .lead { margin: 0 0 6px; font-size: 15px; color: var(--muted); text-wrap: balance; }
+  .menu-buttons { display: flex; flex-direction: column; gap: 10px; }
+  .btn {
+    height: 52px; border-radius: 14px; cursor: pointer; font-size: 16px; font-weight: 700;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  }
+  .btn.primary {
+    border: 0; color: #fff4e8; font-family: var(--font-display); font-weight: 800; font-size: 17px; letter-spacing: 0.02em;
+    background: radial-gradient(circle at 35% 30%, var(--ember), var(--ember-deep));
     box-shadow: 0 8px 28px rgba(201, 90, 28, 0.45);
   }
+  .btn.ghost { background: transparent; }
+  .btn.danger { color: #ff8277; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .confirm { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; background: var(--panel-solid); border: 1px solid var(--line); }
+  .confirm p { margin: 0; font-size: 14px; }
+  .version { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+
+  .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 14px; text-align: left; }
+  .rules li { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: baseline; }
+  .rules b { color: var(--ember); font-weight: 700; }
+
+  .stats { display: grid; grid-template-columns: 1fr auto; gap: 8px 18px; font-size: 16px; font-variant-numeric: tabular-nums; margin: 0; text-align: left; }
+  .stats dt { color: var(--muted); }
+  .stats dd { margin: 0; font-weight: 700; text-align: right; }
+
+  .settings { display: flex; flex-direction: column; gap: 4px; text-align: left; }
+  .set {
+    display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 12px;
+    padding: 12px 2px; border-bottom: 1px solid var(--line); font-size: 15px;
+  }
+  .set:last-child { border-bottom: 0; }
+  .set output { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+  .set input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--ember); height: 28px; }
+  .set input[type="checkbox"] { width: 24px; height: 24px; accent-color: var(--ember); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; color: var(--muted); padding: 8px 10px; font-size: 13px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--ember); color: #2a1408; font-weight: 700; }
+
   @media (prefers-reduced-motion: reduce) { .toast, .bar i { transition: none; } }
 </style>
+</head>
+<body>
 
 <div id="app"></div>
 <div id="touch"></div>
 <div id="vignette"></div>
 
-<div id="hud">
+<div id="hud" hidden>
   <div class="tl">
     <div id="day" class="pill"><span id="dayName">День 1</span><span id="dayPhase">день</span><span id="dayTime">2:00</span></div>
     <div class="bars">
@@ -228,11 +292,11 @@
     </div>
   </div>
   <div class="tr">
+    <button id="btnPause" type="button" aria-label="Пауза"></button>
     <div class="chip"><i class="ic wood"></i><b id="invWood">0</b></div>
     <div class="chip"><i class="ic stone"></i><b id="invStone">0</b></div>
     <div class="chip"><i class="ic berry"></i><b id="invBerry">0</b></div>
     <div class="chip sub">Убито <b id="kills">0</b></div>
-    <div class="chip sub">Рекорд <b id="best">0</b></div>
   </div>
   <div id="toasts"></div>
   <div id="joy" hidden><div id="knob"></div></div>
@@ -241,7 +305,7 @@
     <button id="btnEat" class="round small" type="button">Есть<em id="eatCount">0</em></button>
     <button id="btnAction" class="round big" type="button"><span id="actLabel">Удар</span></button>
   </div>
-  <div id="keys">WASD — ходить · E или пробел — действие · F — есть · C — крафт · мышь — камера</div>
+  <div id="keys">WASD — ходить · E или пробел — действие · F — есть · C — крафт · Esc — пауза · мышь — камера</div>
 </div>
 
 <div id="craft" class="sheet" hidden>
@@ -249,17 +313,90 @@
   <div id="recipes"></div>
 </div>
 
-<div id="start" class="overlay">
+<!-- Главное меню -->
+<div id="menu" class="overlay menu" hidden>
   <div class="card">
     <h1>Долгая <span class="lit">ночь</span></h1>
     <p class="lead">Днём собирай ресурсы и строй. Ночью приходят зомби, и с каждой ночью их больше.</p>
+    <div class="menu-buttons" id="menuButtons">
+      <button class="btn primary" id="btnContinue" type="button">Продолжить</button>
+      <button class="btn" id="btnNew" type="button">Новая игра</button>
+      <div class="row2">
+        <button class="btn" id="btnHow" type="button">Как играть</button>
+        <button class="btn" id="btnRecords" type="button">Рекорды</button>
+      </div>
+      <button class="btn" id="btnSettings" type="button">Настройки</button>
+    </div>
+    <div class="confirm" id="confirmNew" hidden>
+      <p>Начать заново? Сохранённая игра пропадёт.</p>
+      <div class="row2">
+        <button class="btn ghost" id="btnNewNo" type="button">Отмена</button>
+        <button class="btn primary" id="btnNewYes" type="button">Начать</button>
+      </div>
+    </div>
+    <span class="version">Версия 0.2</span>
+  </div>
+</div>
+
+<div id="how" class="overlay" hidden>
+  <div class="card">
+    <h2>Как играть</h2>
     <ul class="rules">
-      <li><b>Слева</b>джойстик: веди пальцем, чтобы идти</li>
-      <li><b>Справа</b>проведи пальцем, чтобы повернуть камеру</li>
-      <li><b>Кнопка</b>рубить, добывать, пить и бить зомби</li>
-      <li><b>Еда</b>голод и жажда падают: ешь ягоды, пей у озера</li>
+      <li><b>Ходить</b>Левая половина экрана: поставь палец и веди. На компьютере — WASD.</li>
+      <li><b>Камера</b>Правая половина экрана: веди пальцем влево-вправо и вверх-вниз. На компьютере — мышь.</li>
+      <li><b>Кнопка</b>Большая оранжевая кнопка рубит, добывает, собирает, поит и бьёт. Её можно зажать.</li>
+      <li><b>Выживание</b>Голод и жажда падают. Ешь ягоды, пей у озера. Здоровье растёт, когда ты сыт и напился.</li>
+      <li><b>Крафт</b>Меч бьёт сильнее, костёр лечит и светит, стена задерживает зомби.</li>
+      <li><b>Ночь</b>Приходят зомби, и с каждой ночью их больше. На рассвете они сгорают.</li>
     </ul>
-    <button class="cta" id="btnStart" type="button">Играть</button>
+    <button class="btn" type="button" data-back>Назад</button>
+  </div>
+</div>
+
+<div id="records" class="overlay" hidden>
+  <div class="card">
+    <h2>Рекорды</h2>
+    <dl class="stats">
+      <dt>Больше всего ночей</dt><dd id="recBest">0</dd>
+      <dt>Всего убито зомби</dt><dd id="recKills">0</dd>
+      <dt>Сыграно игр</dt><dd id="recGames">0</dd>
+    </dl>
+    <button class="btn" type="button" data-back>Назад</button>
+  </div>
+</div>
+
+<div id="settings" class="overlay" hidden>
+  <div class="card">
+    <h2>Настройки</h2>
+    <div class="settings">
+      <label class="set" for="setSens">Чувствительность камеры <output id="outSens">1.0</output>
+        <input type="range" id="setSens" min="0.3" max="2.5" step="0.1">
+      </label>
+      <label class="set" for="setDist">Расстояние до камеры <output id="outDist">14</output>
+        <input type="range" id="setDist" min="6" max="24" step="1">
+      </label>
+      <label class="set" for="setInvert">Инвертировать камеру по вертикали <input type="checkbox" id="setInvert"></label>
+      <label class="set" for="setShadows">Тени <input type="checkbox" id="setShadows"></label>
+      <div class="set">Графика
+        <div class="seg" id="setQuality" role="group" aria-label="Качество графики">
+          <button type="button" data-q="low">Низкая</button>
+          <button type="button" data-q="mid">Средняя</button>
+          <button type="button" data-q="high">Высокая</button>
+        </div>
+      </div>
+    </div>
+    <button class="btn" type="button" data-back>Готово</button>
+  </div>
+</div>
+
+<div id="pause" class="overlay" hidden>
+  <div class="card">
+    <h2>Пауза</h2>
+    <div class="menu-buttons">
+      <button class="btn primary" id="btnResume" type="button">Продолжить</button>
+      <button class="btn" id="btnPauseSettings" type="button">Настройки</button>
+      <button class="btn" id="btnToMenu" type="button">Сохранить и выйти в меню</button>
+    </div>
   </div>
 </div>
 
@@ -271,17 +408,20 @@
       <dt>Убито зомби</dt><dd id="deadKills">0</dd>
       <dt>Рекорд</dt><dd id="deadBest">0</dd>
     </dl>
-    <button class="cta" id="btnRestart" type="button">Начать заново</button>
+    <div class="menu-buttons">
+      <button class="btn primary" id="btnRestart" type="button">Начать заново</button>
+      <button class="btn" id="btnDeadMenu" type="button">Главное меню</button>
+    </div>
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="three.min.js"></script>
 <script>
 (function () {
   'use strict';
 
   // ------------------------------------------------------------------
-  // Настройки
+  // Настройки игры
   // ------------------------------------------------------------------
   const CFG = {
     dayLen: 120, nightLen: 90,
@@ -300,6 +440,7 @@
       rock: { item: 'stone', amount: 4, respawn: 60, count: 30, action: 'Добыть' },
       bush: { item: 'berry', amount: 3, respawn: 40, count: 28, action: 'Собрать' },
     },
+    pitchMin: -0.12, pitchMax: 1.5,
   };
   const ITEMS = { wood: 'Древесина', stone: 'Камень', berry: 'Ягоды' };
   const RECIPES = [
@@ -307,7 +448,7 @@
     { id: 'campfire', name: 'Костёр', cost: { wood: 5, stone: 3 }, desc: 'Светит и лечит рядом 4 минуты' },
     { id: 'wall', name: 'Стена', cost: { wood: 4 }, desc: 'Зомби придётся её ломать' },
   ];
-  const BEST_KEY = 'dolgaya-noch-best';
+  const KEYS = { save: 'dolgaya-noch-save', stats: 'dolgaya-noch-stats', settings: 'dolgaya-noch-settings', oldBest: 'dolgaya-noch-best' };
 
   const $ = (id) => document.getElementById(id);
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -317,15 +458,23 @@
   const lerpAngle = (a, b, t) => a + ((((b - a + Math.PI) % TAU) + TAU) % TAU - Math.PI) * t;
   const fmtTime = (s) => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
-  function loadBest() { try { return parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0; } catch (e) { return 0; } }
-  function saveBest(v) { try { localStorage.setItem(BEST_KEY, String(v)); } catch (e) { /* хранилище недоступно */ } }
+  function readJson(key, fallback) {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; }
+  }
+  function writeJson(key, value) {
+    try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* хранилище недоступно */ }
+  }
+
+  const settings = Object.assign({ sens: 1, dist: 14, invert: false, shadows: true, quality: 'mid' }, readJson(KEYS.settings, {}));
+  const stats = Object.assign({ best: 0, kills: 0, games: 0 }, readJson(KEYS.stats, {}));
+  try { stats.best = Math.max(stats.best, parseInt(localStorage.getItem(KEYS.oldBest) || '0', 10) || 0); } catch (e) { /* нет хранилища */ }
+  const saveStats = () => writeJson(KEYS.stats, stats);
 
   // ------------------------------------------------------------------
   // Рендер, сцена, свет
   // ------------------------------------------------------------------
   const app = $('app');
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   app.appendChild(renderer.domElement);
@@ -336,21 +485,21 @@
   scene.fog.color = scene.background;
 
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
+  const QUALITY = { low: 0.75, mid: 1.25, high: 2 };
   function resize() {
     const w = app.clientWidth || window.innerWidth, h = app.clientHeight || window.innerHeight;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY[settings.quality] || 1.25));
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', resize);
-  resize();
 
   const SKY_DAY = new THREE.Color(0x9ccfe8), SKY_DUSK = new THREE.Color(0xe08a5e), SKY_NIGHT = new THREE.Color(0x090e20);
   const SUN_COLOR = new THREE.Color(0xfff0d6), MOON_COLOR = new THREE.Color(0x7d8fc7);
   const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x4a5a2a, 0.6);
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff0d6, 1);
-  sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 120 });
   sun.shadow.bias = -0.0008;
@@ -359,6 +508,11 @@
   scene.add(playerLight);
   // Фиксированный набор огней для костров: добавление новых источников света на лету вызывает подвисания.
   const firePool = [0, 1, 2].map(() => { const l = new THREE.PointLight(0xff8a3a, 0, 13, 2); scene.add(l); return { light: l, used: false }; });
+
+  function applySettings() {
+    sun.castShadow = !!settings.shadows;
+    resize();
+  }
 
   // ------------------------------------------------------------------
   // Материалы и геометрия
@@ -439,11 +593,12 @@
     const tuft = new THREE.ConeGeometry(0.07, 0.38, 3).translate(0, 0.19, 0);
     const grass = new THREE.InstancedMesh(tuft, MAT.grass, 700);
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0);
     for (let i = 0; i < 700; i++) {
       let x, z;
       do { x = rand(-CFG.mapHalf, CFG.mapHalf); z = rand(-CFG.mapHalf, CFG.mapHalf); }
       while (Math.hypot(x - L.x, z - L.z) < L.r + 3);
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand(0, TAU));
+      q.setFromAxisAngle(up, rand(0, TAU));
       const k = rand(0.7, 1.4);
       m4.compose(p.set(x, 0, z), q, s.set(k, k, k));
       grass.setMatrixAt(i, m4);
@@ -460,9 +615,10 @@
     }
     const trunks = new THREE.InstancedMesh(GEO.trunk, MAT.trunk, spots.length);
     const crowns = new THREE.InstancedMesh(GEO.cone1, MAT.pine, spots.length);
+    q.identity();
     spots.forEach(([x, z], i) => {
       const h = rand(2.2, 3.4), k = rand(1.1, 1.6);
-      m4.compose(p.set(x, 0, z), q.identity(), s.set(1, h, 1)); trunks.setMatrixAt(i, m4);
+      m4.compose(p.set(x, 0, z), q, s.set(1, h, 1)); trunks.setMatrixAt(i, m4);
       m4.compose(p.set(x, h + 1.1 * k, z), q, s.set(k, k * 1.3, k)); crowns.setMatrixAt(i, m4);
     });
     scene.add(trunks, crowns);
@@ -583,23 +739,26 @@
   // Состояние игры
   // ------------------------------------------------------------------
   const P = {};
-  const W = {};
+  const W = { clock: 0 };
   const zombies = [];
   const walls = [];
   const campfires = [];
-  let best = loadBest();
-  let started = false;
+  let screen = 'menu'; // menu | game | pause | dead
   let craftOpen = false;
+  let camYaw = 0.6, camPitch = 0.8, shake = 0, vignette = 0;
 
-  function resetGame() {
-    for (const z of zombies) { scene.remove(z.h.g, z.bar.g); }
+  function clearWorld() {
+    for (const z of zombies) scene.remove(z.h.g, z.bar.g);
     zombies.length = 0;
     for (const w of walls) scene.remove(w.mesh);
     walls.length = 0;
     for (const c of campfires) removeCampfire(c, true);
     campfires.length = 0;
     for (const r of resources) { r.left = r.cfg.amount; r.active = true; r.g.visible = true; }
+  }
 
+  function resetGame() {
+    clearWorld();
     Object.assign(P, {
       x: 0, z: 0, r: 0.4, face: 0, hp: 100, maxHp: 100,
       hunger: CFG.maxHunger, thirst: CFG.maxThirst,
@@ -612,7 +771,45 @@
     hero.g.rotation.set(0, 0, 0);
     hero.g.position.set(0, 0, 0);
     camYaw = 0.6;
+    camPitch = 0.8;
   }
+
+  // ------------------------------------------------------------------
+  // Сохранение
+  // ------------------------------------------------------------------
+  function makeSave() {
+    return {
+      v: 1,
+      P: { x: P.x, z: P.z, face: P.face, hp: P.hp, hunger: P.hunger, thirst: P.thirst,
+        inv: Object.assign({}, P.inv), hasSword: P.hasSword, kills: P.kills, nights: P.nights },
+      W: { day: W.day, night: W.night, t: W.t, warned: W.warned },
+      zombies: W.night ? zombies.filter((z) => !z.dead && !z.burn).length + W.toSpawn : 0,
+      walls: walls.map((w) => ({ x: w.x, z: w.z, rot: w.rot, hp: w.hp })),
+      fires: campfires.map((c) => ({ x: c.x, z: c.z, life: c.life })),
+      cam: { yaw: camYaw, pitch: camPitch },
+    };
+  }
+  function loadSave(data) {
+    resetGame();
+    Object.assign(P, data.P, { dead: false });
+    P.inv = Object.assign({ wood: 0, stone: 0, berry: 0 }, data.P.inv);
+    if (!(P.hp > 0)) P.hp = 1;
+    Object.assign(W, data.W);
+    W.toSpawn = data.zombies || 0;
+    W.spawnT = 2;
+    for (const w of data.walls || []) { addWall(w.x, w.z, w.rot); damageWall(walls[walls.length - 1], CFG.wall.hp - w.hp, true); }
+    for (const c of data.fires || []) { addCampfire(c.x, c.z); campfires[campfires.length - 1].life = c.life; }
+    sword.visible = P.hasSword;
+    if (data.cam) { camYaw = data.cam.yaw; camPitch = data.cam.pitch; }
+  }
+  const hasSave = () => !!readJson(KEYS.save, null);
+  function persist() {
+    if ((screen === 'game' || screen === 'pause') && !P.dead) writeJson(KEYS.save, makeSave());
+  }
+  setInterval(() => { if (screen === 'game') persist(); }, 5000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && screen === 'game') { persist(); showScreen('pause'); }
+  });
 
   // ------------------------------------------------------------------
   // Уведомления
@@ -635,22 +832,22 @@
   // ------------------------------------------------------------------
   // Управление
   // ------------------------------------------------------------------
-  let camYaw = 0.6, camDist = 14, shake = 0;
   const keys = {};
   const joy = { id: null, sx: 0, sy: 0, x: 0, y: 0 };
-  const look = { id: null, lastX: 0 };
+  const look = { id: null, lastX: 0, lastY: 0 };
   let actionHeld = false;
   const touchLayer = $('touch'), joyEl = $('joy'), knob = $('knob');
+  const playing = () => screen === 'game' && !craftOpen;
 
   touchLayer.addEventListener('pointerdown', (e) => {
-    if (!started) return;
+    if (!playing()) return;
     if (e.pointerType !== 'mouse' && e.clientX < window.innerWidth * 0.5 && joy.id === null) {
       joy.id = e.pointerId; joy.sx = e.clientX; joy.sy = e.clientY; joy.x = 0; joy.y = 0;
       joyEl.style.left = e.clientX + 'px'; joyEl.style.top = e.clientY + 'px';
       knob.style.transform = '';
       joyEl.hidden = false;
     } else if (look.id === null) {
-      look.id = e.pointerId; look.lastX = e.clientX;
+      look.id = e.pointerId; look.lastX = e.clientX; look.lastY = e.clientY;
     }
     try { touchLayer.setPointerCapture(e.pointerId); } catch (err) { /* не критично */ }
   });
@@ -662,42 +859,59 @@
       joy.x = dx / max; joy.y = dy / max;
       knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
     } else if (e.pointerId === look.id) {
-      camYaw -= (e.clientX - look.lastX) * 0.008;
-      look.lastX = e.clientX;
+      const k = 0.007 * settings.sens;
+      camYaw -= (e.clientX - look.lastX) * k;
+      camPitch = clamp(camPitch + (e.clientY - look.lastY) * k * (settings.invert ? -1 : 1), CFG.pitchMin, CFG.pitchMax);
+      look.lastX = e.clientX; look.lastY = e.clientY;
     }
   });
   function endPointer(e) {
     if (e.pointerId === joy.id) { joy.id = null; joy.x = 0; joy.y = 0; joyEl.hidden = true; }
     if (e.pointerId === look.id) look.id = null;
   }
+  function releaseAllInput() {
+    joy.id = null; joy.x = 0; joy.y = 0; joyEl.hidden = true;
+    look.id = null;
+    actionHeld = false;
+    for (const k in keys) keys[k] = false;
+  }
   touchLayer.addEventListener('pointerup', endPointer);
   touchLayer.addEventListener('pointercancel', endPointer);
-  touchLayer.addEventListener('wheel', (e) => { camDist = clamp(camDist + Math.sign(e.deltaY) * 0.8, 8, 22); }, { passive: true });
+  touchLayer.addEventListener('wheel', (e) => {
+    settings.dist = clamp(settings.dist + Math.sign(e.deltaY), 6, 24);
+    writeJson(KEYS.settings, settings);
+  }, { passive: true });
   document.addEventListener('contextmenu', (e) => e.preventDefault());
 
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     keys[e.code] = true;
-    if (!started) return;
+    if (e.code === 'Escape') {
+      if (craftOpen) toggleCraft(false);
+      else if (screen === 'game') showScreen('pause');
+      else if (screen === 'pause') showScreen('game');
+      return;
+    }
+    if (!playing() && !(craftOpen && e.code === 'KeyC')) return;
     if (e.code === 'KeyE' || e.code === 'Space') { actionHeld = true; e.preventDefault(); }
     if (e.code === 'KeyF') eat();
     if (e.code === 'KeyC') toggleCraft();
-    if (e.code === 'Escape' && craftOpen) toggleCraft(false);
   });
   window.addEventListener('keyup', (e) => {
     keys[e.code] = false;
     if (e.code === 'KeyE' || e.code === 'Space') actionHeld = false;
   });
-  window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; actionHeld = false; });
+  window.addEventListener('blur', releaseAllInput);
 
   const btnAction = $('btnAction');
-  btnAction.addEventListener('pointerdown', (e) => { e.preventDefault(); actionHeld = true; });
+  btnAction.addEventListener('pointerdown', (e) => { e.preventDefault(); if (playing()) actionHeld = true; });
   for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) btnAction.addEventListener(ev, () => { actionHeld = false; });
   btnAction.addEventListener('keydown', (e) => { if (e.code === 'Enter') actionHeld = true; });
   btnAction.addEventListener('keyup', (e) => { if (e.code === 'Enter') actionHeld = false; });
   $('btnEat').addEventListener('click', () => eat());
   $('btnCraft').addEventListener('click', () => toggleCraft());
   $('craftClose').addEventListener('click', () => toggleCraft(false));
+  $('btnPause').addEventListener('click', () => showScreen('pause'));
 
   // ------------------------------------------------------------------
   // Столкновения
@@ -745,22 +959,22 @@
   function forward() { return { x: Math.sin(P.face), z: Math.cos(P.face) }; }
 
   function nearestZombie(maxDist) {
-    let best = null, bestD = maxDist;
+    let found = null, bestD = maxDist;
     for (const z of zombies) {
       if (z.dead || z.burn) continue;
       const d = Math.hypot(z.x - P.x, z.z - P.z);
-      if (d < bestD) { best = z; bestD = d; }
+      if (d < bestD) { found = z; bestD = d; }
     }
-    return best;
+    return found;
   }
   function nearestResource() {
-    let best = null, bestD = Infinity;
+    let found = null, bestD = Infinity;
     for (const r of resources) {
       if (!r.active) continue;
       const d = Math.hypot(r.x - P.x, r.z - P.z) - r.r - P.r;
-      if (d < CFG.reach && d < bestD) { best = r; bestD = d; }
+      if (d < CFG.reach && d < bestD) { found = r; bestD = d; }
     }
-    return best;
+    return found;
   }
   const nearLake = () => Math.hypot(P.x - CFG.lake.x, P.z - CFG.lake.z) < CFG.lake.r + 2.2;
 
@@ -801,7 +1015,7 @@
   }
 
   function eat() {
-    if (!started || P.dead) return;
+    if (!playing() || P.dead) return;
     if (P.inv.berry < 1) { toast('Нет ягод. Ищи кусты с красными ягодами', 'warn'); return; }
     if (P.hunger >= CFG.maxHunger - 1) { toast('Ты не голоден'); return; }
     P.inv.berry--;
@@ -825,12 +1039,13 @@
     P.hp = 0;
     P.dead = true;
     P.deadT = 0;
-    actionHeld = false;
+    releaseAllInput();
     toggleCraft(false);
+    writeJson(KEYS.save, null);
     $('deadDays').textContent = P.nights;
     $('deadKills').textContent = P.kills;
-    $('deadBest').textContent = best;
-    setTimeout(() => { if (P.dead) $('dead').hidden = false; }, 1400);
+    $('deadBest').textContent = stats.best;
+    setTimeout(() => { if (P.dead && screen === 'game') showScreen('dead'); }, 1400);
   }
 
   // ------------------------------------------------------------------
@@ -847,15 +1062,14 @@
       '<button type="button" id="craft-' + rec.id + '">Создать</button>';
     el.querySelector('button').addEventListener('click', () => craft(rec));
     recipeBox.appendChild(el);
-    return { rec, el, btn: el.querySelector('button'), costs: el.querySelectorAll('[data-item]') };
+    return { rec, btn: el.querySelector('button'), costs: el.querySelectorAll('[data-item]') };
   });
-  recipeBox.style.cssText = 'display:flex;flex-direction:column;gap:8px';
 
   function toggleCraft(force) {
     craftOpen = typeof force === 'boolean' ? force : !craftOpen;
-    if (P.dead) craftOpen = false;
+    if (screen !== 'game' || P.dead) craftOpen = false;
     $('craft').hidden = !craftOpen;
-    actionHeld = false;
+    releaseAllInput();
     updateCraftSheet();
   }
   function updateCraftSheet() {
@@ -886,6 +1100,7 @@
     toggleCraft(false);
   }
 
+  const WALL_COLOR = new THREE.Color(0x9a6b40), WALL_BROKEN = new THREE.Color(0x3a2a1c);
   function addWall(x, z, rot) {
     const mat = lam(0x9a6b40);
     const m = mesh(boxGeo(4, 2.4, 0.5), mat);
@@ -901,14 +1116,14 @@
     scene.add(m);
     walls.push({ x, z, rot, hw: 2, hd: 0.25, hp: CFG.wall.hp, mesh: m, mat, shake: 0 });
   }
-  function damageWall(w, dmg) {
+  function damageWall(w, dmg, silent) {
     w.hp -= dmg;
-    w.shake = 0.2;
-    w.mat.color.setHex(0x9a6b40).lerp(new THREE.Color(0x3a2a1c), 1 - Math.max(0, w.hp) / CFG.wall.hp);
+    if (!silent) w.shake = 0.2;
+    w.mat.color.copy(WALL_COLOR).lerp(WALL_BROKEN, 1 - Math.max(0, w.hp) / CFG.wall.hp);
     if (w.hp <= 0) {
       scene.remove(w.mesh);
       walls.splice(walls.indexOf(w), 1);
-      toast('Зомби сломали стену!', 'bad');
+      if (!silent) toast('Зомби сломали стену!', 'bad');
     }
   }
 
@@ -985,6 +1200,8 @@
       z.dead = true;
       z.bar.g.visible = false;
       P.kills++;
+      stats.kills++;
+      saveStats();
     }
   }
 
@@ -1088,12 +1305,12 @@
     for (const z of zombies) burnZombie(z);
     if (!P.dead) {
       P.nights++;
-      if (P.nights > best) { best = P.nights; saveBest(best); toast('Новый рекорд: ' + best + '!', 'good'); }
+      if (P.nights > stats.best) { stats.best = P.nights; saveStats(); toast('Новый рекорд: ' + stats.best + '!', 'good'); }
       else toast('Рассвет! Ты пережил ночей: ' + P.nights, 'good');
     }
   }
   function updateClock(dt) {
-    W.clock = (W.clock || 0) + dt;
+    W.clock += dt;
     W.t += dt;
     const dur = W.night ? CFG.nightLen : CFG.dayLen;
     if (!W.night && !W.warned && dur - W.t < 15) { W.warned = true; toast('Скоро стемнеет. Готовь меч и костёр!', 'warn'); }
@@ -1114,8 +1331,8 @@
   const hourNow = () => (W.night ? 18 : 6) + 12 * W.t / (W.night ? CFG.nightLen : CFG.dayLen);
 
   const tmpColor = new THREE.Color();
-  function updateLighting() {
-    const h = hourNow();
+  function updateLighting(hourOverride) {
+    const h = hourOverride !== undefined ? hourOverride : hourNow();
     const dl = clamp(Math.sin(((h - 6) / 12) * Math.PI) * 1.7 + 0.08, 0, 1);
     if (dl < 0.35) scene.background.copy(SKY_NIGHT).lerp(SKY_DUSK, dl / 0.35);
     else scene.background.copy(SKY_DUSK).lerp(SKY_DAY, (dl - 0.35) / 0.65);
@@ -1124,13 +1341,13 @@
     hemi.intensity = 0.26 + 0.42 * dl;
     sun.intensity = 0.16 + 0.9 * dl;
     sun.color.copy(tmpColor.copy(MOON_COLOR).lerp(SUN_COLOR, dl));
-    const a = ((W.night ? h - 18 : h - 6) / 12) * Math.PI;
+    const night = h >= 18 || h < 6;
+    const a = (((night ? h - 18 : h - 6) + 24) % 24) / 12 * Math.PI;
     sun.position.set(P.x + Math.cos(a) * 30, 22 + Math.sin(a) * 24, P.z + 14);
     sun.target.position.set(P.x, 0, P.z);
     sun.target.updateMatrixWorld();
     playerLight.intensity = (1 - dl) * 1.2;
     playerLight.position.set(P.x, 2.6, P.z);
-    return dl;
   }
 
   // ------------------------------------------------------------------
@@ -1208,38 +1425,44 @@
   }
 
   // ------------------------------------------------------------------
-  // Камера и HUD
+  // Камера: крутится по кругу и вверх-вниз вокруг игрока
   // ------------------------------------------------------------------
   const camLook = new THREE.Vector3();
-  function updateCamera(dt, snap) {
-    const horiz = camDist * 0.7, height = camDist * 0.72;
+  function updateCamera(dt, snap, orbit) {
+    const dist = orbit ? 19 : settings.dist;
+    const pitch = orbit ? 0.32 : camPitch;
+    const lookY = 1.3;
+    const horiz = Math.cos(pitch) * dist;
     const tx = P.x + Math.sin(camYaw) * horiz, tz = P.z + Math.cos(camYaw) * horiz;
-    const k = snap ? 1 : 1 - Math.exp(-dt * 8);
+    const ty = Math.max(0.35, lookY + Math.sin(pitch) * dist);
+    const k = snap ? 1 : 1 - Math.exp(-dt * 14);
     camera.position.x += (tx - camera.position.x) * k;
-    camera.position.y += (height - camera.position.y) * k;
+    camera.position.y += (ty - camera.position.y) * k;
     camera.position.z += (tz - camera.position.z) * k;
     if (shake > 0) {
       camera.position.x += rand(-1, 1) * shake * 0.4;
       camera.position.y += rand(-1, 1) * shake * 0.4;
       shake = Math.max(0, shake - dt);
     }
-    camLook.set(P.x, 1.1, P.z);
+    camLook.set(P.x, lookY, P.z);
     camera.lookAt(camLook);
   }
 
+  // ------------------------------------------------------------------
+  // HUD
+  // ------------------------------------------------------------------
   const hud = {
-    day: $('day'), dayName: $('dayName'), dayPhase: $('dayPhase'), dayTime: $('dayTime'),
+    root: $('hud'), day: $('day'), dayName: $('dayName'), dayPhase: $('dayPhase'), dayTime: $('dayTime'),
     hpFill: $('hpFill'), hpVal: $('hpVal'), foodFill: $('foodFill'), foodVal: $('foodVal'),
     waterFill: $('waterFill'), waterVal: $('waterVal'),
-    wood: $('invWood'), stone: $('invStone'), berry: $('invBerry'), kills: $('kills'), best: $('best'),
+    wood: $('invWood'), stone: $('invStone'), berry: $('invBerry'), kills: $('kills'),
     actLabel: $('actLabel'), eatCount: $('eatCount'), craft: $('btnCraft'), vignette: $('vignette'),
   };
-  let vignette = 0;
   let hudTimer = 0;
   function setText(el, v) { v = String(v); if (el.textContent !== v) el.textContent = v; }
   function updateHud(dt) {
     vignette = Math.max(0, vignette - dt * 1.6);
-    const lowHp = !P.dead && P.hp < 30 ? 0.25 + Math.sin(W.clock * 5) * 0.1 : 0;
+    const lowHp = screen === 'game' && !P.dead && P.hp < 30 ? 0.25 + Math.sin(W.clock * 5) * 0.1 : 0;
     hud.vignette.style.opacity = Math.max(vignette, lowHp);
     hudTimer -= dt;
     if (hudTimer > 0) return;
@@ -1258,13 +1481,114 @@
     setText(hud.stone, P.inv.stone);
     setText(hud.berry, P.inv.berry);
     setText(hud.kills, P.kills);
-    setText(hud.best, best);
     setText(hud.eatCount, P.inv.berry);
     const ctx = P.dead ? { label: '—', idle: true } : context();
     setText(hud.actLabel, ctx.label);
     btnAction.classList.toggle('idle', !!ctx.idle);
     hud.craft.classList.toggle('ready', RECIPES.some((r) => canAfford(r.cost) && !(r.id === 'sword' && P.hasSword)));
     updateCraftSheet();
+  }
+
+  // ------------------------------------------------------------------
+  // Экраны: меню, пауза, настройки, рекорды
+  // ------------------------------------------------------------------
+  const OVERLAYS = ['menu', 'how', 'records', 'settings', 'pause', 'dead'];
+  let panelReturn = 'menu';
+  let wakeLock = null;
+
+  function showScreen(name) {
+    if (name === 'pause' && screen !== 'game') return;
+    if (screen === 'game' && name !== 'game') { releaseAllInput(); toggleCraft(false); persist(); }
+    screen = ['how', 'records', 'settings'].includes(name) ? screen : name;
+    for (const id of OVERLAYS) $(id).hidden = id !== name;
+    hud.root.hidden = !(name === 'game' || name === 'dead');
+    if (name === 'menu') refreshMenu();
+    if (name === 'records') {
+      $('recBest').textContent = stats.best;
+      $('recKills').textContent = stats.kills;
+      $('recGames').textContent = stats.games;
+    }
+    if (name === 'settings') refreshSettings();
+    if (name === 'game') requestWakeLock();
+    const focusable = name !== 'game' && $(name) && $(name).querySelector('button:not([hidden])');
+    if (focusable && !matchMedia('(pointer: coarse)').matches) focusable.focus({ preventScroll: true });
+  }
+  function openPanel(name, from) { panelReturn = from; showScreen(name); }
+  document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => showScreen(panelReturn)));
+
+  function refreshMenu() {
+    const saved = hasSave();
+    $('btnContinue').hidden = !saved;
+    $('btnNew').classList.toggle('primary', !saved);
+    $('menuButtons').hidden = false;
+    $('confirmNew').hidden = true;
+  }
+
+  function startNewGame() {
+    writeJson(KEYS.save, null);
+    resetGame();
+    stats.games++;
+    saveStats();
+    updateCamera(0, true, false);
+    showScreen('game');
+    toast('Подойди к дереву и нажми «Рубить»', 'good');
+  }
+  function continueGame() {
+    const data = readJson(KEYS.save, null);
+    if (!data) { startNewGame(); return; }
+    loadSave(data);
+    updateCamera(0, true, false);
+    showScreen('game');
+    toast('День ' + W.day + '. С возвращением!', 'good');
+  }
+  function goToMenu() {
+    persist();
+    resetGame();
+    showScreen('menu');
+  }
+
+  $('btnContinue').addEventListener('click', continueGame);
+  $('btnNew').addEventListener('click', () => {
+    if (hasSave()) { $('menuButtons').hidden = true; $('confirmNew').hidden = false; $('btnNewYes').focus({ preventScroll: true }); }
+    else startNewGame();
+  });
+  $('btnNewNo').addEventListener('click', refreshMenu);
+  $('btnNewYes').addEventListener('click', startNewGame);
+  $('btnHow').addEventListener('click', () => openPanel('how', 'menu'));
+  $('btnRecords').addEventListener('click', () => openPanel('records', 'menu'));
+  $('btnSettings').addEventListener('click', () => openPanel('settings', 'menu'));
+  $('btnResume').addEventListener('click', () => showScreen('game'));
+  $('btnPauseSettings').addEventListener('click', () => openPanel('settings', 'pause'));
+  $('btnToMenu').addEventListener('click', goToMenu);
+  $('btnRestart').addEventListener('click', startNewGame);
+  $('btnDeadMenu').addEventListener('click', () => { resetGame(); showScreen('menu'); });
+
+  // Настройки
+  function refreshSettings() {
+    $('setSens').value = settings.sens; $('outSens').textContent = Number(settings.sens).toFixed(1);
+    $('setDist').value = settings.dist; $('outDist').textContent = settings.dist;
+    $('setInvert').checked = !!settings.invert;
+    $('setShadows').checked = !!settings.shadows;
+    document.querySelectorAll('#setQuality button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.q === settings.quality)));
+  }
+  function changeSetting(key, value) {
+    settings[key] = value;
+    writeJson(KEYS.settings, settings);
+    applySettings();
+    refreshSettings();
+  }
+  $('setSens').addEventListener('input', (e) => changeSetting('sens', parseFloat(e.target.value)));
+  $('setDist').addEventListener('input', (e) => changeSetting('dist', parseInt(e.target.value, 10)));
+  $('setInvert').addEventListener('change', (e) => changeSetting('invert', e.target.checked));
+  $('setShadows').addEventListener('change', (e) => changeSetting('shadows', e.target.checked));
+  document.querySelectorAll('#setQuality button').forEach((b) => b.addEventListener('click', () => changeSetting('quality', b.dataset.q)));
+
+  function requestWakeLock() {
+    if (!('wakeLock' in navigator) || wakeLock) return;
+    navigator.wakeLock.request('screen').then((lock) => {
+      wakeLock = lock;
+      lock.addEventListener('release', () => { wakeLock = null; });
+    }).catch(() => { /* экран может погаснуть, это не страшно */ });
   }
 
   // ------------------------------------------------------------------
@@ -1275,11 +1599,16 @@
     requestAnimationFrame(frame);
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    const paused = !started || craftOpen;
-    if (!paused) {
+    const inMenu = screen === 'menu';
+
+    if (screen === 'game' && !craftOpen) {
       updateClock(dt);
       if (!P.dead) { updatePlayer(dt); updateSurvival(dt); }
       updateZombies(dt);
+      updateWorldObjects(dt);
+    } else if (inMenu) {
+      W.clock += dt;
+      camYaw += dt * 0.05;
       updateWorldObjects(dt);
     }
 
@@ -1295,55 +1624,39 @@
       if (P.swingT > 0) hero.armR.rotation.x = -Math.sin((1 - P.swingT / 0.3) * Math.PI) * 2.0;
     }
 
-    updateLighting();
-    updateCamera(dt, false);
+    updateLighting(inMenu ? 17.6 : undefined);
+    updateCamera(dt, false, inMenu);
     updateHud(dt);
     renderer.render(scene, camera);
   }
 
   // ------------------------------------------------------------------
-  // Старт, перезапуск, сохранение при обновлении страницы
+  // Запуск
   // ------------------------------------------------------------------
-  function begin() {
-    $('start').hidden = true;
-    started = true;
-    toast('Подойди к дереву и нажми «Рубить»', 'good');
-  }
-  $('btnStart').addEventListener('click', begin);
-  $('btnRestart').addEventListener('click', () => {
-    $('dead').hidden = true;
-    resetGame();
-    updateCamera(0, true);
-    toast('Новая игра. Удачи!', 'good');
-  });
-
   function start(data) {
+    applySettings();
     resetGame();
-    if (data && data.started && data.P && data.W) {
-      // Обновление страницы во время игры: возвращаем прогресс игрока.
-      Object.assign(P, data.P, { dead: false });
-      if (P.hp <= 0) P.hp = 1;
-      Object.assign(W, data.W, { toSpawn: 0 });
-      sword.visible = P.hasSword;
-      camYaw = data.camYaw || camYaw;
-      $('start').hidden = true;
-      started = true;
+    if (data && data.save && (data.screen === 'game' || data.screen === 'pause')) {
+      // Страница обновилась во время игры: продолжаем с того же места.
+      loadSave(data.save);
+      showScreen('game');
+    } else {
+      showScreen('menu');
     }
-    updateCamera(0, true);
+    updateCamera(0, true, screen !== 'game');
     requestAnimationFrame((t) => { last = t; frame(t); });
   }
 
-  const hot = window.claude && window.claude.hot;
-  if (hot && hot.snapshot) {
-    hot.snapshot(() => ({
-      started,
-      camYaw,
-      P: { x: P.x, z: P.z, face: P.face, hp: P.hp, hunger: P.hunger, thirst: P.thirst,
-        inv: Object.assign({}, P.inv), hasSword: P.hasSword, kills: P.kills, nights: P.nights },
-      W: { day: W.day, night: W.night, t: W.t, warned: W.warned },
-    }));
+  // Офлайн-режим для версии, установленной на главный экран (в приложении Android он не нужен).
+  if ('serviceWorker' in navigator && !window.Capacitor && /^https?:$/.test(location.protocol) && !/claude/.test(location.hostname)) {
+    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => { /* без офлайн-режима */ }); });
   }
+
+  const hot = window.claude && window.claude.hot;
+  if (hot && hot.snapshot) hot.snapshot(() => ({ screen, save: screen === 'game' || screen === 'pause' ? makeSave() : null }));
   if (hot && hot.ready) hot.ready(start);
   else start((hot && hot.data) || {});
 })();
 </script>
+</body>
+</html>

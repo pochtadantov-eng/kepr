@@ -1,0 +1,9 @@
+{
+  "appId": "com.kepr.dolgayanoch",
+  "appName": "Долгая ночь",
+  "webDir": "www",
+  "backgroundColor": "#0a0f24",
+  "android": {
+    "backgroundColor": "#0a0f24"
+  }
+}

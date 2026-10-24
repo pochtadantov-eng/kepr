@@ -1,0 +1,15 @@
+{
+  "name": "dolgaya-noch",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Долгая ночь — 3D-выживание для телефона",
+  "scripts": {
+    "serve": "python3 -m http.server 8080 --directory www"
+  },
+  "devDependencies": {
+    "@capacitor/android": "6.2.0",
+    "@capacitor/assets": "3.0.5",
+    "@capacitor/cli": "6.2.0",
+    "@capacitor/core": "6.2.0"
+  }
+}

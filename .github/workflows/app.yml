@@ -1,0 +1,102 @@
+# Собирает игру «Долгая ночь»:
+#  - APK для Android (публикуется в разделе Releases репозитория);
+#  - сайт для iPhone/Android на GitHub Pages (только из ветки main и если Pages включены).
+name: Сборка приложения
+
+on:
+  push:
+    branches: [main, claude/survival-mode]
+    paths: ['app/**', '.github/workflows/app.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: APK для Android
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Установить Capacitor
+        run: npm install --no-audit --no-fund
+
+      - name: Создать Android-проект
+        run: npx cap add android
+
+      - name: Иконка и заставка
+        run: >
+          npx capacitor-assets generate --android
+          --iconBackgroundColor '#0a0f24' --iconBackgroundColorDark '#0a0f24'
+          --splashBackgroundColor '#0a0f24' --splashBackgroundColorDark '#0a0f24'
+
+      - name: Скопировать игру в приложение
+        run: npx cap sync android
+
+      # Постоянный ключ подписи: без него каждая сборка подписывалась бы новым ключом
+      # и для обновления пришлось бы удалять игру вместе с сохранениями.
+      - name: Ключ подписи
+        run: mkdir -p ~/.android && cp android-debug.keystore ~/.android/debug.keystore
+
+      - name: Собрать APK
+        working-directory: app/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Переименовать APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk dolgaya-noch.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dolgaya-noch-apk
+          path: app/dolgaya-noch.apk
+
+      - name: Опубликовать релиз
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-v0.2.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Долгая ночь 0.2.${{ github.run_number }}
+          make_latest: true
+          files: app/dolgaya-noch.apk
+          body: |
+            Как установить на Android:
+            1. Нажми на файл dolgaya-noch.apk ниже, чтобы скачать.
+            2. Открой скачанный файл. Если телефон спросит, разреши установку из этого источника.
+            3. Нажми «Установить».
+
+            Обновление ставится поверх старой версии, сохранения остаются.
+
+  pages:
+    name: Сайт для iPhone
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/www
+      - id: deploy
+        uses: actions/deploy-pages@v4
