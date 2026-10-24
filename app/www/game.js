@@ -480,11 +480,11 @@
   function baseHeight(x, z) {
     const hills = (fbm(x * 0.007, z * 0.007, 11, 4) - 0.5) * 20;
     const mt = fbm(x * 0.0042 + 31, z * 0.0042 - 17, 23, 4);
+    // Пологие холмы-горы с плоским плато наверху: подъём по плавной S-кривой без острых гребней
     let mountain = 0;
-    if (mt > 0.54) {
-      const k = Math.min((mt - 0.54) / 0.16, 1.7);
-      const ridge = 1 - Math.abs(vnoise(x * 0.022, z * 0.022, 41) * 2 - 1);
-      mountain = Math.pow(k, 1.5) * 25 * (0.7 + ridge * 0.6);
+    if (mt > 0.52) {
+      const k = smoothstep(0.52, 0.72, mt);
+      mountain = k * 13 + (vnoise(x * 0.012, z * 0.012, 41) - 0.5) * 2.5 * k;
     }
     let h = 3.4 + hills + mountain;
     // Озёра разной формы: впадины там, где «озёрный» шум выше порога
@@ -500,7 +500,8 @@
     if (dp < pr * 1.7) h = Math.min(h, lerp(-3, h, smoothstep(pr * 0.6, pr * 1.6, dp)));
     // Горы по краю карты
     const edge = Math.max(Math.abs(x), Math.abs(z));
-    h += smoothstep(HALF - 75, HALF - 5, edge) * 40;
+    // Край карты — широкий пологий вал с ровной вершиной
+    h += smoothstep(HALF - 90, HALF - 20, edge) * 18;
     return h;
   }
 
@@ -555,6 +556,21 @@
     }
   }
 
+  // Размытие карты высот: убирает острые углы и изломы склонов
+  function smoothHeights(passes) {
+    const tmp = new Float32Array(heights.length);
+    for (let p = 0; p < passes; p++) {
+      for (let r = 0; r < N1; r++) for (let c = 0; c < N1; c++) {
+        let sum = 0, w = 0;
+        for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+          const rr = clamp(r + dr, 0, N1 - 1), cc = clamp(c + dc, 0, N1 - 1), k = dr === 0 && dc === 0 ? 4 : dr === 0 || dc === 0 ? 2 : 1;
+          sum += heights[rr * N1 + cc] * k; w += k;
+        }
+        tmp[r * N1 + c] = sum / w;
+      }
+      heights.set(tmp);
+    }
+  }
   function getHeight(x, z) {
     const fx = clamp((x + HALF) / STEP, 0, WORLD.seg - 0.0001), fz = clamp((z + HALF) / STEP, 0, WORLD.seg - 0.0001);
     const c = Math.floor(fx), r = Math.floor(fz), tx = fx - c, tz = fz - r;
@@ -583,9 +599,9 @@
     out.lerp(TC.forest, smoothstep(0.47, 0.6, forestK(x, z)));
     out.lerp(TC.dry, smoothstep(0.6, 0.72, vnoise(x * 0.012, z * 0.012, 93)) * 0.6);
     if (h < 1.9) out.lerp(TC.sand, (1.9 - h) / 0.8 * 0.75);
-    const rockK = Math.max(smoothstep(0.8, 1.25, slope), smoothstep(36, 44, h));
+    const rockK = Math.max(smoothstep(0.75, 1.15, slope), smoothstep(16, 20, h) * 0.55);
     if (rockK > 0) out.lerp(tmpC.copy(TC.rock).lerp(TC.rockDark, m), rockK);
-    const snowK = smoothstep(42, 48, h + m * 4) * (1 - smoothstep(0.9, 1.4, slope));
+    const snowK = smoothstep(19, 22, h + m * 2) * (1 - smoothstep(0.6, 1.0, slope));
     if (snowK > 0) out.lerp(TC.snow, snowK);
     return out;
   }
@@ -594,7 +610,7 @@
     const h = getHeight(x, z);
     if (h < WATER + 0.05) return 'water';
     if (h < 1.6) return 'sand';
-    if (h > 36 || slopeAt(x, z) > 0.9) return 'stone';
+    if (h > 19 || slopeAt(x, z) > 0.8) return 'stone';
     return 'grass';
   }
 
@@ -606,6 +622,7 @@
   function buildTerrain() {
     for (let r = 0; r < N1; r++) for (let c = 0; c < N1; c++) heights[r * N1 + c] = baseHeight(-HALF + c * STEP, -HALF + r * STEP);
     carveRivers(makeRivers(worldRng));
+    smoothHeights(3);
 
     const geo = new THREE.PlaneGeometry(WORLD.size, WORLD.size, WORLD.seg, WORLD.seg);
     geo.rotateX(-Math.PI / 2);
@@ -817,7 +834,7 @@
       trees++;
       const sc = 0.8 + rng() * 0.5, ry = rng() * TAU, parts = [];
       let collR = 0.45 * sc + 0.1, crown;
-      const kind = h > 15 || s > 0.55 ? 'pine' : f > 0.56 ? (rng() < 0.5 ? 'pine' : rng() < 0.6 ? 'oak' : 'birch') : (rng() < 0.55 ? 'oak' : rng() < 0.5 ? 'birch' : 'pine');
+      const kind = h > 12 || s > 0.45 ? 'pine' : f > 0.56 ? (rng() < 0.5 ? 'pine' : rng() < 0.6 ? 'oak' : 'birch') : (rng() < 0.55 ? 'oak' : rng() < 0.5 ? 'birch' : 'pine');
       if (kind === 'pine') {
         const th = 2.2 * sc;
         parts.push(['trunk', B.trunk.add(matrixOf(x, h - 0.2, z, 0.32 * sc, th + 0.6, 0.32 * sc, ry), col(0x6b4a2f, 0.05))]);
@@ -1013,7 +1030,7 @@
     for (let tries = 0; tries < 9000 && caveEntrances.length < 8; tries++) {
       const x = (rng() * 2 - 1) * (HALF - 90), z = (rng() * 2 - 1) * (HALF - 90);
       const h = getHeight(x, z), s = slopeAt(x, z);
-      if (h < 7 || h > 20 || s < 0.25 || s > 0.85) continue;
+      if (h < 5 || h > 18 || s < 0.16 || s > 0.85) continue;
       if (Math.hypot(x, z) < 60 || caveEntrances.some((e) => Math.hypot(e.x - x, e.z - z) < 85)) continue;
       // Вход смотрит вниз по склону
       const gx = getHeight(x + 2, z) - getHeight(x - 2, z), gz = getHeight(x, z + 2) - getHeight(x, z - 2);
