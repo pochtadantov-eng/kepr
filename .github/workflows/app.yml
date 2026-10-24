@@ -1,10 +1,8 @@
 # Собирает Android-приложение «Долгая ночь» и публикует APK в разделе Releases репозитория.
 name: Сборка приложения
 
+# Запускается только вручную: Actions → «Сборка приложения» → Run workflow.
 on:
-  push:
-    branches: [main, claude/survival-mode]
-    paths: ['app/**', '.github/workflows/app.yml']
   workflow_dispatch:
 
 permissions:
