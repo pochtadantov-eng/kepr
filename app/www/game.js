@@ -236,6 +236,12 @@
       dawn() { [523, 659, 784, 1047].forEach((f, i) => tone({ freq: f, dur: 0.5, gain: 0.06, delay: i * 0.12 })); },
       death() { tone({ freq: 300, freqEnd: 60, dur: 1.3, type: 'sawtooth', gain: 0.1, lowpass: 900 }); },
       cave() { noise({ dur: 1.1, type: 'lowpass', freq: 320, gain: 0.25, attack: 0.25 }); },
+      radio() {
+        noise({ dur: 0.45, type: 'bandpass', freq: 1900, q: 1.2, gain: 0.12, attack: 0.02 });
+        for (let i = 0; i < 4; i++) noise({ dur: 0.02, type: 'highpass', freq: 3000, gain: 0.08, delay: 0.05 + Math.random() * 0.35 });
+        tone({ freq: 1250, dur: 0.05, gain: 0.04, delay: 0.42, type: 'square', lowpass: 2500 });
+      },
+      whoosh() { noise({ dur: 1.4, type: 'bandpass', freq: 400, freqEnd: 1400, q: 0.6, gain: 0.12, attack: 0.5 }); },
     };
 
     // Птицы: несколько разных голосов с разных сторон
@@ -685,12 +691,25 @@
     }
   }
 
+  // Округлый камень: сфера с лёгкими буграми и гладкими нормалями
+  function lumpyRock() {
+    const g = new THREE.IcosahedronGeometry(1, 1), pos = g.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const k = 0.82 + vnoise(v.x * 1.8 + 3, v.z * 1.8 + v.y * 1.3, 17) * 0.3;
+      pos.setXYZ(i, v.x * k, v.y * k * 0.9, v.z * k);
+    }
+    // Нормали по исходной сфере: камень остаётся гладким, без граней
+    const nor = g.attributes.normal;
+    for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).normalize(); nor.setXYZ(i, v.x, v.y, v.z); }
+    return g;
+  }
   const lam = (color, extra) => new THREE.MeshLambertMaterial(Object.assign({ color }, extra || {}));
   const GEO = {
-    trunk: new THREE.CylinderGeometry(0.7, 1, 1, 6).translate(0, 0.5, 0),
-    cone: new THREE.ConeGeometry(1, 1, 7).translate(0, 0.5, 0),
-    blob: new THREE.IcosahedronGeometry(1, 0),
-    rock: new THREE.DodecahedronGeometry(1, 0),
+    trunk: new THREE.CylinderGeometry(0.7, 1, 1, 9).translate(0, 0.5, 0),
+    cone: new THREE.ConeGeometry(1, 1, 12).translate(0, 0.5, 0),
+    blob: new THREE.IcosahedronGeometry(1, 1),
+    rock: lumpyRock(),
     berry: new THREE.SphereGeometry(0.13, 6, 5),
     stem: new THREE.CylinderGeometry(0.015, 0.022, 0.42, 3).translate(0, 0.21, 0),
     petal: new THREE.OctahedronGeometry(0.1, 0).translate(0, 0.44, 0),
@@ -700,6 +719,7 @@
     hpBg: new THREE.PlaneGeometry(0.92, 0.13),
     hpFill: new THREE.PlaneGeometry(0.86, 0.08).translate(0.43, 0, 0),
     box: new THREE.BoxGeometry(1, 1, 1),
+    log: new THREE.CylinderGeometry(0.085, 0.085, 1.0, 8),
   };
   const MAT = {
     trunk: lam(0xffffff),
@@ -1030,31 +1050,113 @@
   // ==================================================================
   // Персонажи
   // ==================================================================
-  function makeHuman(mats) {
+  // Коробка со скруглёнными рёбрами и гладкими нормалями (геометрии кэшируются по размеру)
+  const rbCache = {};
+  function roundedBox(w, h, d, r) {
+    r = Math.min(r, w / 2, h / 2, d / 2) * 0.999;
+    const key = w.toFixed(3) + ',' + h.toFixed(3) + ',' + d.toFixed(3) + ',' + r.toFixed(3);
+    if (rbCache[key]) return rbCache[key];
+    const g = new THREE.BoxGeometry(w, h, d, 3, 3, 3);
+    const pos = g.attributes.position, nor = g.attributes.normal;
+    const v = new THREE.Vector3(), inner = new THREE.Vector3(), n = new THREE.Vector3();
+    const hw = w / 2 - r, hh = h / 2 - r, hd = d / 2 - r;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      inner.set(clamp(v.x, -hw, hw), clamp(v.y, -hh, hh), clamp(v.z, -hd, hd));
+      n.subVectors(v, inner);
+      const l = n.length();
+      if (l > 1e-6) {
+        n.divideScalar(l);
+        v.copy(inner).addScaledVector(n, r);
+        pos.setXYZ(i, v.x, v.y, v.z);
+        nor.setXYZ(i, n.x, n.y, n.z);
+      }
+    }
+    rbCache[key] = g;
+    return g;
+  }
+  const std = (color, extra) => new THREE.MeshStandardMaterial(Object.assign({ color, roughness: 0.82, metalness: 0 }, extra || {}));
+  const FACE = { white: std(0xf4f1ea, { roughness: 0.4 }), pupil: std(0x2a1f1a, { roughness: 0.3 }), mouth: std(0x6e2f2a) };
+
+  // Человечек со скруглёнными частями: корпус, голова с лицом, руки с кистями, ноги в ботинках
+  function makeHuman(mats, kind) {
     const g = new THREE.Group();
-    const box = (w, h, d, mat) => { const m = new THREE.Mesh(GEO.box, mat); m.scale.set(w, h, d); m.castShadow = true; return m; };
+    const rb = (w, h, d, r, mat, shadow) => {
+      const m = new THREE.Mesh(roundedBox(w, h, d, r), mat);
+      m.castShadow = shadow !== false;
+      return m;
+    };
+    const at = (m, x, y, z, parent) => { m.position.set(x, y, z); parent.add(m); return m; };
     // Корпус, голова и руки крепятся к поясу, чтобы персонаж мог наклоняться и поворачиваться
     const upper = new THREE.Group(); upper.position.y = 0.9; g.add(upper);
-    const body = box(0.62, 0.72, 0.36, mats.shirt); body.position.y = 0.36; upper.add(body);
+    const body = at(rb(0.62, 0.72, 0.36, 0.11, mats.shirt), 0, 0.36, 0, upper);
+    at(rb(0.64, 0.09, 0.38, 0.04, mats.belt), 0, 0.06, 0, upper);
     const head = new THREE.Group(); head.position.y = 0.96; upper.add(head);
-    head.add(box(0.46, 0.46, 0.46, mats.skin));
-    const limb = (parent, x, y, w, h, mat) => {
+    at(rb(0.46, 0.46, 0.46, 0.11, mats.skin), 0, 0, 0, head);
+    // Лицо
+    if (kind !== 'zombie') {
+      for (const ex of [-0.088, 0.088]) {
+        at(rb(0.085, 0.075, 0.03, 0.02, FACE.white, false), ex, 0.03, 0.222, head);
+        at(rb(0.045, 0.05, 0.02, 0.012, FACE.pupil, false), ex, 0.025, 0.236, head);
+        at(rb(0.1, 0.028, 0.02, 0.01, mats.hair || FACE.pupil, false), ex, 0.105, 0.232, head);
+      }
+      at(rb(0.11, 0.028, 0.02, 0.01, FACE.mouth, false), 0, -0.12, 0.228, head);
+    } else {
+      at(rb(0.16, 0.05, 0.02, 0.015, FACE.pupil, false), 0, -0.12, 0.228, head);
+    }
+    at(rb(0.065, 0.085, 0.06, 0.025, mats.skin, false), 0, -0.03, 0.245, head);
+
+    const limb = (parent, x, y, w, len, mat, endMat, endLen) => {
       const pivot = new THREE.Group(); pivot.position.set(x, y, 0);
-      const m = box(w, h, w, mat); m.position.y = -h / 2; pivot.add(m);
+      const top = len - endLen + 0.04;
+      at(rb(w, top, w, w * 0.36, mat), 0, -top / 2, 0, pivot);
+      at(rb(w * 0.94, endLen, w * 0.94, w * 0.4, endMat), 0, -(len - endLen / 2), 0, pivot);
       parent.add(pivot);
       return pivot;
     };
-    return {
-      g, upper, head, body,
-      legL: limb(g, -0.16, 0.9, 0.26, 0.9, mats.pants), legR: limb(g, 0.16, 0.9, 0.26, 0.9, mats.pants),
-      armL: limb(upper, -0.43, 0.68, 0.22, 0.74, mats.arms || mats.skin), armR: limb(upper, 0.43, 0.68, 0.22, 0.74, mats.arms || mats.skin),
+    const leg = (x) => {
+      const pivot = new THREE.Group(); pivot.position.set(x, 0.9, 0);
+      at(rb(0.26, 0.8, 0.26, 0.09, mats.pants), 0, -0.4, 0, pivot);
+      at(rb(0.28, 0.16, 0.36, 0.07, mats.shoes), 0, -0.82, 0.04, pivot);
+      g.add(pivot);
+      return pivot;
     };
+    const h = {
+      g, upper, head, body,
+      legL: leg(-0.16), legR: leg(0.16),
+      armL: limb(upper, -0.43, 0.68, 0.22, 0.74, mats.arms || mats.skin, mats.skin, 0.2),
+      armR: limb(upper, 0.43, 0.68, 0.22, 0.74, mats.armsR || mats.arms || mats.skin, mats.skin, 0.2),
+    };
+    if (kind === 'zombie') {
+      // Рваная одежда: тёмные дыры и пятна на рубашке
+      const rip = std(0x2a2420);
+      at(rb(0.16, 0.12, 0.02, 0.03, rip, false), -0.12, 0.42, 0.181, upper);
+      at(rb(0.1, 0.16, 0.02, 0.03, rip, false), 0.16, 0.22, 0.181, upper);
+      at(rb(0.2, 0.1, 0.02, 0.03, mats.skin, false), 0.02, 0.6, -0.181, upper);
+    }
+    return h;
   }
-  const ZOMBIE_MATS = { skin: lam(0x7fa36a), shirt: lam(0x5b4a3c), pants: lam(0x34405a) };
-  const CAVE_ZOMBIE_MATS = { skin: lam(0x8c93a8), shirt: lam(0x3b3346), pants: lam(0x2a2a33) };
+  const ZOMBIE_MATS = { skin: std(0x7fa36a), shirt: std(0x5b4a3c), pants: std(0x34405a), belt: std(0x2a2019), shoes: std(0x2b2622), arms: std(0x5b4a3c), armsR: std(0x7fa36a) };
+  const CAVE_ZOMBIE_MATS = { skin: std(0x8c93a8), shirt: std(0x3b3346), pants: std(0x2a2a33), belt: std(0x1d1a1f), shoes: std(0x1f1d22), arms: std(0x8c93a8) };
 
-  const hero = makeHuman({ skin: lam(0xf0c8a0), shirt: lam(0x3a78c9), pants: lam(0x2b3448), arms: lam(0x3a78c9) });
-  const hair = new THREE.Mesh(GEO.box, lam(0x4a2f1c)); hair.scale.set(0.5, 0.14, 0.5); hair.position.y = 0.25; hero.head.add(hair);
+  const HAIR = std(0x4a2f1c, { roughness: 0.9 });
+  const hero = makeHuman({ skin: std(0xf0c8a0, { roughness: 0.7 }), shirt: std(0x3a78c9), pants: std(0x2b3448), arms: std(0x3a78c9),
+    belt: std(0x5a3b22), shoes: std(0x3b2a1e), hair: HAIR }, 'hero');
+  (function heroDetails() {
+    const rb = (w, h, d, r, mat, x, y, z, parent) => { const m = new THREE.Mesh(roundedBox(w, h, d, r), mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
+    // Причёска с чёлкой
+    rb(0.5, 0.14, 0.5, 0.06, HAIR, 0, 0.22, -0.005, hero.head);
+    rb(0.5, 0.1, 0.09, 0.04, HAIR, 0, 0.16, 0.21, hero.head);
+    rb(0.07, 0.24, 0.44, 0.03, HAIR, -0.225, 0.08, -0.02, hero.head);
+    rb(0.07, 0.24, 0.44, 0.03, HAIR, 0.225, 0.08, -0.02, hero.head);
+    rb(0.48, 0.3, 0.08, 0.04, HAIR, 0, 0.06, -0.225, hero.head);
+    // Рюкзак за спиной и лямки
+    const bag = std(0x7a5a36), bagDark = std(0x5a4128);
+    rb(0.44, 0.5, 0.2, 0.08, bag, 0, 0.38, -0.27, hero.upper);
+    rb(0.42, 0.15, 0.23, 0.06, bagDark, 0, 0.6, -0.27, hero.upper);
+    rb(0.3, 0.16, 0.06, 0.04, bagDark, 0, 0.22, -0.38, hero.upper);
+    for (const x of [-0.17, 0.17]) rb(0.07, 0.62, 0.04, 0.02, bagDark, x, 0.38, 0.185, hero.upper);
+  })();
   // Кисть правой руки: в ней меч, топор, фляга или ягода
   const handR = new THREE.Group();
   handR.position.set(0, -0.72, 0.02);
@@ -1333,6 +1435,7 @@
 
   function clearWorld() {
     if (inCave) leaveCave(true);
+    if (typeof Intro !== 'undefined') Intro.clear();
     for (const z of zombies) scene.remove(z.h.g, z.bar.g);
     zombies.length = 0;
     for (const w of walls) surface.remove(w.mesh);
@@ -1526,6 +1629,10 @@
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     keys[e.code] = true;
+    if (screen === 'intro') {
+      if (e.code === 'Escape') Intro.skip(); else if (e.code === 'Space' || e.code === 'Enter') Intro.next();
+      return;
+    }
     if (e.code === 'Escape') {
       if (bagOpen) toggleBag(false);
       else if (craftOpen) toggleCraft(false);
@@ -1957,7 +2064,7 @@
   function spawnDrop(id, n) {
     const f = forward();
     const x = P.x + f.x * 1.4 + rand(-0.3, 0.3), z = P.z + f.z * 1.4 + rand(-0.3, 0.3);
-    const m = new THREE.Mesh(GEO.box, dropMats[id]);
+    const m = new THREE.Mesh(roundedBox(1, 1, 1, 0.28), dropMats[id]);
     m.scale.setScalar(n >= 16 ? 0.45 : 0.32);
     m.castShadow = true;
     (inCave ? caveGroup : surface).add(m);
@@ -1987,9 +2094,9 @@
     const y = getHeight(x, z);
     g.position.set(x, y + 1.1, z);
     g.rotation.y = rot;
-    const body = new THREE.Mesh(GEO.box, mat); body.scale.set(4, 2.6, 0.5); body.castShadow = true; body.receiveShadow = true; g.add(body);
+    const body = new THREE.Mesh(roundedBox(4, 2.6, 0.5, 0.12), mat); body.castShadow = true; body.receiveShadow = true; g.add(body);
     for (let i = -1; i <= 1; i++) {
-      const plank = new THREE.Mesh(GEO.box, MAT.log); plank.scale.set(4.05, 0.08, 0.52); plank.position.y = i * 0.8; g.add(plank);
+      const plank = new THREE.Mesh(roundedBox(4.06, 0.1, 0.54, 0.04), MAT.log); plank.position.y = i * 0.8; g.add(plank);
     }
     surface.add(g);
     walls.push({ x, z, rot, hw: 2, hd: 0.25, hp: CFG.wall.hp, mesh: g, mat, shake: 0 });
@@ -2012,8 +2119,8 @@
     g.rotation.y = rot;
     const plank = lam(0xa0703f), dark = lam(0x5e3c22), metal = new THREE.MeshPhongMaterial({ color: 0xaab2ba, shininess: 80 });
     const part = (mat, sx, sy, sz, px, py, pz, ry) => {
-      const m = new THREE.Mesh(GEO.box, mat);
-      m.scale.set(sx, sy, sz); m.position.set(px, py, pz); m.rotation.y = ry || 0;
+      const m = new THREE.Mesh(roundedBox(sx, sy, sz, Math.min(sx, sy, sz) * 0.35), mat);
+      m.position.set(px, py, pz); m.rotation.y = ry || 0;
       m.castShadow = true; m.receiveShadow = true;
       g.add(m);
     };
@@ -2038,8 +2145,8 @@
       g.add(s);
     }
     for (const a of [0.6, -0.6, 2.2]) {
-      const log = new THREE.Mesh(GEO.box, MAT.log);
-      log.scale.set(0.16, 0.16, 1.0); log.position.y = 0.16; log.rotation.y = a;
+      const log = new THREE.Mesh(GEO.log, MAT.log);
+      log.position.y = 0.16; log.rotation.set(Math.PI / 2, a, 0, 'YXZ');
       g.add(log);
     }
     const flame = new THREE.Mesh(GEO.flame, MAT.flame); flame.position.y = 0.15; g.add(flame);
@@ -2485,11 +2592,10 @@
   // Зомби
   // ==================================================================
   function spawnZombieAt(x, z, inCaveZombie) {
-    const h = makeHuman(inCaveZombie ? CAVE_ZOMBIE_MATS : ZOMBIE_MATS);
-    for (const ex of [-0.11, 0.11]) {
-      const eye = new THREE.Mesh(GEO.box, inCaveZombie ? MAT.caveEye : MAT.eye);
-      eye.scale.set(0.09, 0.07, 0.02);
-      eye.position.set(ex, 0.04, 0.235);
+    const h = makeHuman(inCaveZombie ? CAVE_ZOMBIE_MATS : ZOMBIE_MATS, 'zombie');
+    for (const ex of [-0.095, 0.095]) {
+      const eye = new THREE.Mesh(roundedBox(0.09, 0.07, 0.03, 0.015), inCaveZombie ? MAT.caveEye : MAT.eye);
+      eye.position.set(ex, 0.04, 0.224);
       h.head.add(eye);
     }
     h.g.position.set(x, groundY(x, z), z);
@@ -2901,7 +3007,7 @@
   // Камера: крутится по кругу и вверх-вниз вокруг игрока
   // ==================================================================
   const camLook = new THREE.Vector3();
-  let camFrac = 1;
+  let camFrac = 1, camBlend = 0;
   function cameraBlocked(x, y, z) {
     if (y < getHeight(x, z) + 0.35) return true;
     let hit = false;
@@ -2947,7 +3053,8 @@
         }
       }
     }
-    const k = snap ? 1 : 1 - Math.exp(-dt * 14);
+    camBlend = Math.max(0, camBlend - dt);
+    const k = snap ? 1 : 1 - Math.exp(-dt * (camBlend > 0 ? 2.2 : 14));
     camera.position.x += (tx - camera.position.x) * k;
     camera.position.y += (ty - camera.position.y) * k;
     camera.position.z += (tz - camera.position.z) * k;
@@ -3120,9 +3227,7 @@
     resetGame();
     stats.games++;
     saveStats();
-    updateCamera(0, true, false);
-    showScreen('game');
-    toast('Подойди к дереву и нажми на экран', 'good');
+    Intro.start();
   }
   function continueGame() {
     const data = readJson(KEYS.save, null);
@@ -3193,6 +3298,257 @@
   }
 
   // ==================================================================
+  // Вступительная сцена: предыстория, рация, пробуждение у потухшего костра
+  // ==================================================================
+  const Intro = (function () {
+    // shot: план камеры; pose: 0 — лежит, 1 — сидит с рацией, 2 — стоит
+    const LINES = [
+      { shot: 'aerial', who: '', text: 'Три недели назад с гор спустился туман.', title: true },
+      { shot: 'aerial', who: '', text: 'Он был тёплым и пах дождём. Никто не испугался.' },
+      { shot: 'forest', who: '', text: 'А потом те, кто его вдохнул, перестали спать. И перестали быть людьми.' },
+      { shot: 'forest', who: '', text: 'Днём они прячутся в лесах и пещерах. Ночью выходят на охоту.' },
+      { shot: 'wake', who: 'Рация', text: '…кшш… Приём. Кто-нибудь меня слышит?', radio: true, pose: 0 },
+      { shot: 'wake', who: 'Рация', text: 'Это Вера, лагерь «Рассвет». Если ты жив — ответь.', radio: true, pose: 0 },
+      { shot: 'sit', who: 'Ты', text: 'Голова раскалывается… Где я?', pose: 1 },
+      { shot: 'sit', who: 'Вера', text: 'Ты в долине. Ты один пережил ночь у этого костра. Слушай внимательно.', radio: true, pose: 1 },
+      { shot: 'sit', who: 'Вера', text: 'Собери дерево и камень. Поставь верстак и сделай топор и оружие.', radio: true, pose: 1 },
+      { shot: 'sit', who: 'Вера', text: 'Набери воды во флягу, ешь ягоды с кустов. Огонь их отпугивает.', radio: true, pose: 1 },
+      { shot: 'stand', who: 'Вера', text: 'Каждую ночь их будет больше. Продержись, мы тебя найдём… кшш…', radio: true, pose: 2 },
+      { shot: 'stand', who: 'Ты', text: 'Ладно. Сначала — укрытие и оружие.', pose: 2 },
+    ];
+    const SHOTS = {
+      // [смещение камеры в начале, в конце, куда смотрит, высота взгляда, час суток]
+      aerial: { from: [-130, 75, 170], to: [-50, 42, 70], look: [0, 4, 0], hour: 17.35, abs: true, fog: [160, 900] },
+      forest: { from: [0, 0, 0], to: [0, 0, 0], hour: 17.7, forest: true, fog: [45, 260] },
+      wake: { from: [2.6, 1.9, 2.3], to: [1.5, 1.05, 1.3], look: [0, 0.4, -0.2] },
+      sit: { from: [1.7, 1.25, 2.5], to: [-1.3, 1.2, 2.4], look: [0, 0.85, 0] },
+      stand: { from: [-2.6, 2.1, 3.8], to: [-1.4, 2.4, -5.5], look: [0, 1.4, 0] },
+    };
+    const el = {
+      root: $('intro'), who: $('introWho'), text: $('introText'), next: $('introNext'), title: $('introTitle'), skip: $('introSkip'),
+    };
+    let i = 0, shot = null, shotT = 0, shotLen = 1, chars = 0, lineT = 0, done = false, stage = 0, stageTarget = 0;
+    let group = null, props = null, extras = [];
+
+    function buildProps() {
+      group = new THREE.Group();
+      surface.add(group);
+      const gy = (x, z) => getHeight(x, z);
+      // Потухший костёр
+      const fire = new THREE.Group();
+      const fx = P.x + 1.5, fz = P.z + 0.6;
+      fire.position.set(fx, gy(fx, fz), fz);
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * TAU, st = new THREE.Mesh(GEO.rock, MAT.rockStatic);
+        st.scale.setScalar(0.2); st.position.set(Math.cos(a) * 0.6, 0.1, Math.sin(a) * 0.6); st.castShadow = true; fire.add(st);
+      }
+      const coal = std(0x1c1714);
+      for (const a of [0.5, -0.7, 2.0]) {
+        const log = new THREE.Mesh(GEO.log, coal); log.position.y = 0.12; log.rotation.set(Math.PI / 2, a, 0, 'YXZ'); fire.add(log);
+      }
+      const ash = new THREE.Mesh(new THREE.CircleGeometry(0.5, 16), std(0x55504a));
+      ash.rotation.x = -Math.PI / 2; ash.position.y = 0.02; fire.add(ash);
+      group.add(fire);
+      // Дымок над костром
+      const smokeMat = new THREE.MeshBasicMaterial({ color: 0x9a9690, transparent: true, opacity: 0.25, depthWrite: false });
+      const puffs = [];
+      for (let k = 0; k < 7; k++) {
+        const m = new THREE.Mesh(GEO.blob, smokeMat.clone()); m.userData.ph = k / 7; fire.add(m); puffs.push(m);
+      }
+      // Рация: на земле, в руке и потом на поясе
+      const radioMesh = () => {
+        const r = new THREE.Group();
+        const body = new THREE.Mesh(roundedBox(0.14, 0.24, 0.07, 0.025), std(0x3c4a34)); r.add(body);
+        const grill = new THREE.Mesh(roundedBox(0.1, 0.07, 0.02, 0.008), std(0x1c1f1a)); grill.position.set(0, 0.04, 0.035); r.add(grill);
+        const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.012, 0.22, 6), std(0x1a1a1a)); ant.position.set(0.04, 0.22, 0); r.add(ant);
+        const led = new THREE.Mesh(roundedBox(0.025, 0.02, 0.01, 0.004), new THREE.MeshBasicMaterial({ color: 0x9cff6a })); led.position.set(-0.04, 0.09, 0.037); r.add(led);
+        r.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+        return r;
+      };
+      const ground = radioMesh();
+      const rx = P.x - 0.75, rz = P.z + 0.2;
+      ground.position.set(rx, gy(rx, rz) + 0.04, rz); ground.rotation.set(-Math.PI / 2, 0, 0.7);
+      group.add(ground);
+      const inHand = radioMesh(); inHand.position.set(0, -0.06, 0.06); inHand.rotation.x = -1.2; inHand.visible = false; handR.add(inHand);
+      const onBelt = radioMesh(); onBelt.position.set(0.35, 0.02, 0.06); onBelt.scale.setScalar(0.8); onBelt.visible = false; hero.upper.add(onBelt);
+      // Силуэты тварей в вечернем лесу
+      const zx = P.x + 34, zz = P.z + 18;
+      for (let k = 0; k < 3; k++) {
+        const z = makeHuman(ZOMBIE_MATS, 'zombie');
+        for (const ex of [-0.095, 0.095]) { const eye = new THREE.Mesh(roundedBox(0.09, 0.07, 0.03, 0.015), MAT.eye); eye.position.set(ex, 0.04, 0.224); z.head.add(eye); }
+        const x = zx + k * 2.4, zq = zz + (k - 1) * 1.6;
+        z.g.position.set(x, gy(x, zq), zq);
+        z.g.rotation.y = -2.3;
+        group.add(z.g);
+        extras.push({ h: z, x, z: zq, ph: k * 1.3 });
+      }
+      props = { fire, puffs, ground, inHand, onBelt, zx, zz };
+    }
+
+    function start() {
+      done = false; i = 0; stage = 0; stageTarget = 0; extras = [];
+      buildProps();
+      P.face = 0;
+      screen = 'intro';
+      for (const id of OVERLAYS) $(id).hidden = true;
+      hud.root.hidden = true;
+      el.root.hidden = false;
+      el.root.classList.remove('out');
+      requestAnimationFrame(() => el.root.classList.add('on'));
+      Sound.play('whoosh');
+      showLine(0, true);
+    }
+
+    function showLine(n, first) {
+      i = n;
+      const L = LINES[i];
+      if (L.shot !== (shot && shot.name)) {
+        const change = () => { shot = Object.assign({ name: L.shot }, SHOTS[L.shot]); shotT = 0; shotLen = LINES.filter((x) => x.shot === L.shot).length * 4.2; };
+        if (first || !shot) change();
+        else { const f = $('fade'); f.classList.add('on'); setTimeout(() => { change(); setTimeout(() => f.classList.remove('on'), 80); }, 330); }
+      }
+      if (typeof L.pose === 'number') stageTarget = L.pose;
+      el.who.textContent = L.who;
+      el.who.hidden = !L.who;
+      el.text.textContent = '';
+      el.next.classList.remove('show');
+      el.title.classList.toggle('show', !!L.title);
+      chars = 0; lineT = 0;
+      if (L.radio) Sound.play('radio');
+    }
+
+    function advance() {
+      if (done) return;
+      const L = LINES[i];
+      if (chars < L.text.length) { chars = L.text.length; el.text.textContent = L.text; return; }
+      if (i + 1 < LINES.length) showLine(i + 1);
+      else finish();
+    }
+
+    function finish() {
+      if (done) return;
+      done = true;
+      el.root.classList.add('out');
+      el.root.classList.remove('on');
+      props.inHand.visible = false;
+      props.onBelt.visible = true;
+      props.ground.visible = false;
+      for (const e of extras) group.remove(e.h.g);
+      extras = [];
+      hero.g.rotation.x = 0;
+      P.face = 0;
+      camYaw = Math.PI; camPitch = 0.45;
+      camBlend = 1.6;
+      setTimeout(() => { el.root.hidden = true; }, 450);
+      showScreen('game');
+      toast('Подойди к дереву и нажми на экран', 'good');
+    }
+
+    function update(dt) {
+      if (done) return;
+      const L = LINES[i];
+      lineT += dt;
+      shotT += dt;
+      if (chars < L.text.length) {
+        chars = Math.min(L.text.length, chars + dt * 38);
+        el.text.textContent = L.text.slice(0, Math.floor(chars));
+        if (chars >= L.text.length) el.text.textContent = L.text;
+      } else {
+        el.next.classList.add('show');
+        // Сами листаются, если не нажимать
+        if (lineT > L.text.length / 38 + 2.6 + L.text.length * 0.025) advance();
+      }
+      stage += clamp(stageTarget - stage, -dt * 0.9, dt * 0.9);
+      // Дым и твари
+      for (const m of props.puffs) {
+        const t = (W.clock * 0.25 + m.userData.ph) % 1;
+        m.position.set(Math.sin(t * 6 + m.userData.ph * 9) * 0.15, 0.3 + t * 2.6, Math.cos(t * 5) * 0.1);
+        m.scale.setScalar(0.08 + t * 0.22);
+        m.material.opacity = 0.14 * Math.sin(t * Math.PI);
+      }
+      for (const e of extras) {
+        e.ph += dt * 1.6;
+        e.x -= Math.sin(2.3) * dt * 0.7; e.z -= Math.cos(2.3) * dt * 0.7;
+        const bob = animateHuman(e.h, e.ph, 0.8, true, false);
+        e.h.g.position.set(e.x, getHeight(e.x, e.z) + bob, e.z);
+      }
+      W.clock += dt;
+    }
+
+    const POSES = [
+      // лежит на спине
+      { gx: -Math.PI / 2, dy: 0.42, upperX: 0, legL: 0.05, legR: -0.08, armLx: -0.25, armLz: -0.35, armRx: -0.2, armRz: 0.35, headX: -0.15 },
+      // сидит, ноги вытянуты, у уха рация
+      { gx: 0, dy: -0.66, upperX: -0.08, legL: -1.5, legR: -1.42, armLx: -0.35, armLz: -0.2, armRx: -2.05, armRz: -0.75, headX: 0.1 },
+      // стоит
+      { gx: 0, dy: 0, upperX: 0, legL: 0, legR: 0, armLx: 0, armLz: 0, armRx: 0, armRz: 0, headX: 0 },
+    ];
+    function pose() {
+      animateHuman(hero, 0, 0, false, false);
+      const a = Math.min(1, Math.floor(stage)), t = smooth(stage - a), A = POSES[a], B = POSES[Math.min(2, a + 1)];
+      const v = (k) => A[k] + (B[k] - A[k]) * t;
+      hero.g.rotation.x = v('gx');
+      hero.upper.rotation.x = v('upperX');
+      hero.legL.rotation.x = v('legL'); hero.legR.rotation.x = v('legR');
+      hero.armL.rotation.x = v('armLx'); hero.armL.rotation.z = v('armLz');
+      hero.armR.rotation.x = v('armRx'); hero.armR.rotation.z = v('armRz');
+      hero.head.rotation.x = v('headX');
+      // Встаёт с опорой: при подъёме чуть подаётся вперёд
+      if (stage > 1 && stage < 2) hero.upper.rotation.x += Math.sin((stage - 1) * Math.PI) * 0.55;
+      handR.rotation.x = 0;
+      hero.g.position.set(P.x, P.y + v('dy'), P.z);
+      const holding = stage > 0.55 && stage < 1.75;
+      props.inHand.visible = holding;
+      props.ground.visible = stage <= 0.55;
+      props.onBelt.visible = stage >= 1.75;
+      swordMesh.visible = ironSwordMesh.visible = axeMesh.visible = bottleMesh.visible = berryMesh.visible = false;
+    }
+
+    const camFrom = new THREE.Vector3(), camTo = new THREE.Vector3(), camAt = new THREE.Vector3();
+    function cameraUpdate() {
+      if (!shot) return;
+      const t = smooth(clamp(shotT / shotLen, 0, 1));
+      if (shot.forest) {
+        // Медленный проезд мимо бредущих в сумерках тварей
+        const cx = props.zx + 3, cz = props.zz;
+        camFrom.set(cx - 9, 0, cz + 10); camTo.set(cx - 2, 0, cz + 7);
+        camera.position.lerpVectors(camFrom, camTo, t);
+        camera.position.y = getHeight(camera.position.x, camera.position.z) + 1.8;
+        camAt.set(cx, getHeight(cx, cz) + 1.3, cz);
+      } else if (shot.abs) {
+        camFrom.set(P.x + shot.from[0], 0, P.z + shot.from[2]); camTo.set(P.x + shot.to[0], 0, P.z + shot.to[2]);
+        camera.position.lerpVectors(camFrom, camTo, t);
+        camera.position.y = Math.max(getHeight(camera.position.x, camera.position.z) + 8, lerp(P.y + shot.from[1], P.y + shot.to[1], t));
+        camAt.set(P.x + shot.look[0], P.y + shot.look[1], P.z + shot.look[2]);
+      } else {
+        camFrom.set(P.x + shot.from[0], P.y + shot.from[1], P.z + shot.from[2]);
+        camTo.set(P.x + shot.to[0], P.y + shot.to[1], P.z + shot.to[2]);
+        camera.position.lerpVectors(camFrom, camTo, t);
+        camAt.set(P.x + shot.look[0], P.y + shot.look[1] + (stage > 1 ? (stage - 1) * 0.5 : 0), P.z + shot.look[2]);
+      }
+      camera.lookAt(camAt);
+    }
+
+    function clear() {
+      if (group) { surface.remove(group); group = null; }
+      if (props) { handR.remove(props.inHand); hero.upper.remove(props.onBelt); props = null; }
+      extras = [];
+      el.root.hidden = true;
+      el.root.classList.remove('on', 'out');
+    }
+
+    el.root.addEventListener('pointerup', (e) => { if (!e.target.closest('#introSkip')) advance(); });
+    el.skip.addEventListener('click', () => finish());
+    return {
+      start, update, pose, cameraUpdate, clear, skip: finish, next: advance,
+      hour: () => (shot && shot.hour) || hourNow(),
+      // Для общих планов туман дальше, чтобы была видна долина
+      fog() { if (shot && shot.fog) { scene.fog.near = shot.fog[0]; scene.fog.far = shot.fog[1]; } },
+      active: () => screen === 'intro',
+    };
+  })();
+
+  // ==================================================================
   // Главный цикл
   // ==================================================================
   let last = performance.now();
@@ -3217,10 +3573,14 @@
       W.clock += dt;
       camYaw += dt * 0.04;
       updateWorldObjects(dt);
+    } else if (screen === 'intro') {
+      Intro.update(dt);
     }
 
     hero.g.rotation.y = P.face;
-    if (P.dead) {
+    if (screen === 'intro') {
+      Intro.pose();
+    } else if (P.dead) {
       P.deadT += dt;
       hero.g.rotation.x = -Math.min(1, P.deadT / 0.5) * Math.PI / 2;
       hero.g.position.set(P.x, P.y + Math.min(1, P.deadT / 0.5) * 0.25, P.z);
@@ -3258,8 +3618,9 @@
       refreshEquipment();
     }
 
-    updateCamera(dt, false, inMenu);
-    updateLighting(inMenu ? 17.4 : undefined);
+    if (screen === 'intro') Intro.cameraUpdate(); else updateCamera(dt, false, inMenu);
+    updateLighting(inMenu ? 17.4 : screen === 'intro' ? Intro.hour() : undefined);
+    if (screen === 'intro') Intro.fog();
     updateHud(dt);
     renderer.render(scene, camera);
   }
@@ -3304,6 +3665,7 @@
       give(k, n) { invAdd(k, n); },
       equip(w) { P.weapon = w; refreshEquipment(); },
       anim(name) { playAnim(name); },
+      introNext() { Intro.next(); },
       zombie() { spawnZombieAt(P.x + Math.sin(P.face) * 2, P.z + Math.cos(P.face) * 2, !!inCave); },
       get zombies() { return zombies; },
       camDist() { return camera.position.distanceTo(hero.g.position); },

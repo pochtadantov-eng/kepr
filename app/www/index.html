@@ -314,7 +314,47 @@
   #slotName span { color: var(--muted); font-weight: 500; }
   .drop-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 6px; }
   .drop-row .btn { height: 42px; font-size: 13px; }
-  #fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; transition: opacity 0.35s; }
+  /* Вступительная сцена: широкоэкранные полосы и субтитры */
+  #intro { position: fixed; inset: 0; z-index: 5; cursor: pointer; }
+  #intro .ibar {
+    position: absolute; left: 0; right: 0; height: 0; background: #000; transition: height 0.9s ease;
+  }
+  #intro .ibar.top { top: 0; }
+  #intro .ibar.bottom { bottom: 0; }
+  #intro.on .ibar { height: 13%; }
+  #intro.out .ibar { height: 0; transition-duration: 0.45s; }
+  #introTitle {
+    position: absolute; left: 0; right: 0; top: 30%; text-align: center; opacity: 0; transition: opacity 1.6s ease;
+    font-family: var(--font-display); font-weight: 800; font-size: clamp(34px, 9vw, 64px); letter-spacing: 0.02em;
+    color: var(--ink); text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+  }
+  #introTitle .lit { color: var(--ember); text-shadow: 0 0 28px rgba(255, 138, 61, 0.6); }
+  #introTitle.show { opacity: 1; }
+  #introSkip {
+    position: absolute; z-index: 1;
+    top: calc(max(10px, 13% - 46px) + max(env(safe-area-inset-top, 0px), var(--cut-t, 0px)));
+    right: calc(14px + max(env(safe-area-inset-right, 0px), var(--cut-r, 0px)));
+    height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid rgba(255, 236, 214, 0.25);
+    background: rgba(0, 0, 0, 0.45); color: var(--ink); font-size: 13px; font-weight: 500; cursor: pointer;
+  }
+  #introSkip:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+  #introCaption {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: calc(4% + max(env(safe-area-inset-bottom, 0px), var(--cut-b, 0px)));
+    width: min(calc(100% - 40px), 720px); min-height: 70px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    opacity: 0; transition: opacity 0.6s ease 0.5s;
+  }
+  #intro.on #introCaption { opacity: 1; }
+  #introWho { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ember); }
+  #introText {
+    margin: 0; font-size: clamp(15px, 2.2vw, 19px); line-height: 1.4; color: #f4ece0; text-wrap: balance;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9); min-height: 1.4em;
+  }
+  #introNext { font-size: 11px; color: var(--muted); opacity: 0; transition: opacity 0.4s; }
+  #introNext.show { opacity: 0.8; }
+  @media (prefers-reduced-motion: reduce) { #intro .ibar, #introTitle, #introCaption { transition: none; } }
+  #fade { position: fixed; inset: 0; z-index: 6; background: #000; opacity: 0; pointer-events: none; transition: opacity 0.35s; }
   #fade.on { opacity: 1; }
   #loading {
     position: fixed; inset: 0; display: grid; place-items: center; background: #0a0f24; color: var(--muted);
@@ -424,7 +464,7 @@
         <button class="btn primary" id="btnNewYes" type="button">Начать</button>
       </div>
     </div>
-    <span class="version">Версия 0.13</span>
+    <span class="version">Версия 0.14</span>
   </div>
 </div>
 
@@ -494,6 +534,18 @@
       <button class="btn" id="btnPauseSettings" type="button">Настройки</button>
       <button class="btn" id="btnToMenu" type="button">Сохранить и выйти в меню</button>
     </div>
+  </div>
+</div>
+
+<div id="intro" hidden>
+  <div class="ibar top"></div>
+  <div class="ibar bottom"></div>
+  <div id="introTitle"><span>Долгая</span> <span class="lit">ночь</span></div>
+  <button id="introSkip" type="button">Пропустить</button>
+  <div id="introCaption">
+    <span id="introWho" hidden></span>
+    <p id="introText"></p>
+    <span id="introNext">Нажми, чтобы продолжить</span>
   </div>
 </div>
 
