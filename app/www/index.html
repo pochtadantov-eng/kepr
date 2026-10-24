@@ -64,8 +64,8 @@
   #hud { position: fixed; inset: 0; pointer-events: none; }
   .tl {
     position: absolute;
-    top: calc(10px + env(safe-area-inset-top, 0px));
-    left: calc(10px + env(safe-area-inset-left, 0px));
+    top: calc(10px + max(env(safe-area-inset-top, 0px), var(--cut-t, 0px)));
+    left: calc(10px + max(env(safe-area-inset-left, 0px), var(--cut-l, 0px)));
     display: flex; flex-direction: column; gap: 6px; width: 168px;
   }
   .pill {
@@ -95,8 +95,8 @@
 
   .tr {
     position: absolute;
-    top: calc(10px + env(safe-area-inset-top, 0px));
-    right: calc(10px + env(safe-area-inset-right, 0px));
+    top: calc(10px + max(env(safe-area-inset-top, 0px), var(--cut-t, 0px)));
+    right: calc(10px + max(env(safe-area-inset-right, 0px), var(--cut-r, 0px)));
     display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
   }
   .chip {
@@ -127,7 +127,7 @@
 
   #toasts {
     position: absolute; left: 50%; transform: translateX(-50%);
-    top: calc(22% + env(safe-area-inset-top, 0px));
+    top: calc(22% + max(env(safe-area-inset-top, 0px), var(--cut-t, 0px)));
     width: min(92vw, 440px);
     display: flex; flex-direction: column; align-items: center; gap: 4px;
   }
@@ -153,8 +153,8 @@
 
   #controls {
     position: absolute;
-    right: calc(16px + env(safe-area-inset-right, 0px));
-    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    right: calc(16px + max(env(safe-area-inset-right, 0px), var(--cut-r, 0px)));
+    bottom: calc(18px + max(env(safe-area-inset-bottom, 0px), var(--cut-b, 0px)));
     width: 172px; height: 166px; pointer-events: none;
   }
   .round {
@@ -181,8 +181,8 @@
 
   #keys {
     position: absolute;
-    left: calc(12px + env(safe-area-inset-left, 0px));
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    left: calc(12px + max(env(safe-area-inset-left, 0px), var(--cut-l, 0px)));
+    bottom: calc(12px + max(env(safe-area-inset-bottom, 0px), var(--cut-b, 0px)));
     font-size: 12px; color: var(--muted); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
   }
   @media (pointer: coarse) { #keys { display: none; } }
@@ -190,9 +190,9 @@
   /* ---------- Крафт ---------- */
   .sheet {
     position: fixed; left: 50%; transform: translateX(-50%);
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(12px + max(env(safe-area-inset-bottom, 0px), var(--cut-b, 0px)));
     width: min(calc(100vw - 24px), 420px);
-    max-height: calc(100% - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow-y: auto;
+    max-height: calc(100% - 24px - max(env(safe-area-inset-top, 0px), var(--cut-t, 0px)) - max(env(safe-area-inset-bottom, 0px), var(--cut-b, 0px))); overflow-y: auto;
     background: var(--panel-solid); border: 1px solid var(--line); border-radius: 16px;
     padding: 14px; display: flex; flex-direction: column; gap: 10px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
@@ -223,8 +223,8 @@
   /* ---------- Меню и окна ---------- */
   .overlay {
     position: fixed; inset: 0; display: grid; place-items: center; overflow-y: auto;
-    padding: calc(20px + env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px))
-      calc(20px + env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+    padding: calc(20px + max(env(safe-area-inset-top, 0px), var(--cut-t, 0px))) max(20px, max(env(safe-area-inset-right, 0px), var(--cut-r, 0px)))
+      calc(20px + max(env(safe-area-inset-bottom, 0px), var(--cut-b, 0px))) max(20px, max(env(safe-area-inset-left, 0px), var(--cut-l, 0px)));
     background: radial-gradient(ellipse at 50% 80%, rgba(201, 90, 28, 0.22), transparent 60%), rgba(8, 10, 20, 0.62);
   }
   .overlay.menu { background: linear-gradient(180deg, rgba(8, 10, 24, 0.15) 0%, rgba(8, 10, 24, 0.55) 55%, rgba(8, 10, 24, 0.85) 100%); }
@@ -293,6 +293,20 @@
   #loading::after { content: ""; display: block; width: 120px; height: 3px; margin: 14px auto 0; border-radius: 2px;
     background: linear-gradient(90deg, var(--ember) 0 40%, transparent 40%); background-size: 200% 100%; animation: load 1s linear infinite; }
   @keyframes load { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+  /* Телефон боком: меню компактнее, чтобы всё помещалось без прокрутки */
+  @media (max-height: 520px) {
+    .card { gap: 9px; }
+    .card h1 { font-size: 30px; }
+    .card h1 .lit { display: inline; }
+    .card .lead { display: none; }
+    .card h2 { font-size: 20px; }
+    .btn { height: 42px; font-size: 15px; }
+    .menu-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .menu-buttons > .row2 { display: contents; }
+    .menu-buttons > .btn.primary:first-child:not([hidden]) { grid-column: 1 / -1; }
+    .rules { gap: 6px; font-size: 13px; }
+    .install { display: none !important; }
+  }
   @media (prefers-reduced-motion: reduce) { .toast, .bar i { transition: none; } #loading::after { animation: none; } }
 </style>
 </head>
@@ -369,7 +383,7 @@
         <li>Нажми «Добавить». Игра появится на экране с иконкой костра.</li>
       </ol>
     </div>
-    <span class="version">Версия 0.4</span>
+    <span class="version">Версия 0.5</span>
   </div>
 </div>
 
