@@ -1,10 +1,11 @@
 // Сохраняет файлы игры на телефоне, чтобы она запускалась без интернета.
 // При изменении файлов игры увеличь номер версии, чтобы телефоны скачали новую.
-const CACHE = 'dolgaya-noch-v3';
+const CACHE = 'dolgaya-noch-v4';
 const FILES = [
   './',
   'index.html',
   'three.min.js',
+  'game.js',
   'manifest.webmanifest',
   'fonts/fonts.css',
   'fonts/rubik-cyrillic-400-normal.woff2',
