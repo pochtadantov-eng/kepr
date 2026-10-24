@@ -1656,9 +1656,127 @@
   // Пещеры: лабиринт из клеток, железо, кристаллы, пещерные зомби
   // ==================================================================
   const caveWallMat = lam(0xffffff);
-  const caveRockMat = new THREE.MeshLambertMaterial({ vertexColors: true, map: detailTexture(64, 0.62, 1.0, 23) });
-  caveRockMat.map.repeat.set(36, 36);
-  const caveCeilMat = new THREE.MeshLambertMaterial({ color: 0x2f2a26, map: caveRockMat.map });
+  // Бесшовная текстура камня: цвет и карта высот для рельефа (трещины, бугры, вкрапления)
+  function vnoiseP(x, z, s, per) {
+    const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz;
+    const ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
+    const w = (v) => ((v % per) + per) % per;
+    const a = hash2(w(ix), w(iz), s), b = hash2(w(ix + 1), w(iz), s), c = hash2(w(ix), w(iz + 1), s), d = hash2(w(ix + 1), w(iz + 1), s);
+    return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
+  }
+  function fbmP(u, v, s, base, oct) {
+    let sum = 0, amp = 0.5, norm = 0, per = base;
+    for (let i = 0; i < oct; i++) { sum += amp * vnoiseP(u * per, v * per, s + i * 31, per); norm += amp; amp *= 0.5; per *= 2; }
+    return sum / norm;
+  }
+  function rockTextures(size, seed) {
+    const ca = document.createElement('canvas'), ch = document.createElement('canvas');
+    ca.width = ca.height = ch.width = ch.height = size;
+    const ga = ca.getContext('2d'), gh = ch.getContext('2d');
+    const ia = ga.createImageData(size, size), ih = gh.createImageData(size, size);
+    const dark = new THREE.Color(0x2e2925), mid = new THREE.Color(0x6e6359), light = new THREE.Color(0xa59a8c), c = new THREE.Color();
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const u = x / size, v = y / size;
+      const base = fbmP(u, v, seed, 4, 6);
+      const ridge = 1 - Math.abs(fbmP(u, v, seed + 7, 3, 4) * 2 - 1);
+      const crack = smoothstep(0.95, 0.995, ridge);
+      const grain = vnoiseP(u * 64, v * 64, seed + 9, 64);
+      const hgt = fbmP(u, v, seed, 4, 4);
+      c.copy(dark).lerp(mid, smoothstep(0.25, 0.6, base)).lerp(light, smoothstep(0.62, 0.85, base) * 0.7);
+      c.multiplyScalar((1 - crack * 0.25) * (0.85 + grain * 0.3));
+      if (hash2(x, y, seed + 13) > 0.995) c.lerp(light, 0.6);
+      const i = (y * size + x) * 4;
+      ia.data[i] = clamp(c.r * 255, 0, 255); ia.data[i + 1] = clamp(c.g * 255, 0, 255); ia.data[i + 2] = clamp(c.b * 255, 0, 255); ia.data[i + 3] = 255;
+      ih.data[i] = ih.data[i + 1] = ih.data[i + 2] = Math.round(hgt * 255); ih.data[i + 3] = 255;
+    }
+    ga.putImageData(ia, 0, 0); gh.putImageData(ih, 0, 0);
+    const ta = new THREE.CanvasTexture(ca), th = new THREE.CanvasTexture(ch);
+    for (const t of [ta, th]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; }
+    return { albedo: ta, height: th };
+  }
+  // Камень без растяжения на стенах: текстура проецируется с трёх сторон, рельеф даёт объём при свете фонаря
+  function rockMaterial(tex, scale, bump, vertexColors) {
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors, roughness: 0.93, metalness: 0 });
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.tAlb = { value: tex.albedo };
+      sh.uniforms.tHgt = { value: tex.height };
+      sh.uniforms.uScale = { value: scale };
+      sh.uniforms.uBump = { value: bump };
+      sh.vertexShader = 'varying vec3 vWPos;\nvarying vec3 vWNorm;\n' + sh.vertexShader.replace('#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\n' +
+        '#ifdef USE_INSTANCING\n vWPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n vWNorm = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * objectNormal);\n' +
+        '#else\n vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n vWNorm = normalize(mat3(modelMatrix) * objectNormal);\n#endif');
+      sh.fragmentShader = [
+        'uniform sampler2D tAlb; uniform sampler2D tHgt; uniform float uScale; uniform float uBump;',
+        'varying vec3 vWPos; varying vec3 vWNorm;',
+        'vec4 triSample(sampler2D t) {',
+        '  vec3 w = pow(abs(normalize(vWNorm)), vec3(4.0)); w /= (w.x + w.y + w.z);',
+        '  vec3 p = vWPos * uScale;',
+        '  return texture2D(t, p.zy) * w.x + texture2D(t, p.xz) * w.y + texture2D(t, p.xy) * w.z;',
+        '}',
+      ].join('\n') + '\n' + sh.fragmentShader
+        .replace('#include <map_fragment>', 'diffuseColor.rgb *= triSample(tAlb).rgb * 1.6;')
+        .replace('#include <normal_fragment_maps>', [
+          '#include <normal_fragment_maps>',
+          '{',
+          '  float hgt = triSample(tHgt).r;',
+          '  vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition);',
+          '  vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx);',
+          '  float det = dot(dpx, r1);',
+          '  vec3 grad = sign(det) * (dFdx(hgt) * r1 + dFdy(hgt) * r2) * uBump;',
+          '  normal = normalize(abs(det) * normal - grad);',
+          '}',
+        ].join('\n'));
+    };
+    return mat;
+  }
+  let caveRock = null; // материалы пещеры создаются при первом входе, чтобы не замедлять запуск
+  function caveMaterials() {
+    if (caveRock) return caveRock;
+    const tex = rockTextures(256, 77);
+    caveRock = {
+      rock: rockMaterial(tex, 0.2, 0.45, true),
+      boulder: rockMaterial(tex, 0.4, 0.35, false),
+      ore: rockMaterial(tex, 0.4, 0.35, false),
+      puddle: new THREE.MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.04, metalness: 0.7, transparent: true, opacity: 0.88 }),
+      glow: new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
+    };
+    caveRock.ore.color.setHex(0x6e665f);
+    return caveRock;
+  }
+  function glowTexture() {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d'), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, 'rgba(255,255,255,0.9)'); grd.addColorStop(0.35, 'rgba(255,255,255,0.3)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  }
+
+  // Пыль, летающая в свете фонаря
+  const dust = (function () {
+    const n = 260, pos = new Float32Array(n * 3);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffe2b8, size: 0.05, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+    pts.frustumCulled = false;
+    pts.visible = false;
+    scene.add(pts);
+    const seeds = Array.from({ length: n }, () => [Math.random(), Math.random(), Math.random(), Math.random() * TAU]);
+    return {
+      update(t) {
+        pts.visible = !!inCave;
+        if (!inCave) return;
+        for (let i = 0; i < n; i++) {
+          const [a, b, c, ph] = seeds[i], R = 9;
+          const wrap = (v) => ((v % (2 * R)) + 2 * R) % (2 * R) - R;
+          pos[i * 3] = P.x + wrap(a * 2 * R + Math.sin(t * 0.2 + ph) * 1.5 + t * 0.15 - P.x);
+          pos[i * 3 + 1] = CAVE.y + 0.3 + ((b * 5 + t * 0.05 * (0.5 + c)) % 5);
+          pos[i * 3 + 2] = P.z + wrap(c * 2 * R + Math.cos(t * 0.17 + ph) * 1.5 - P.z);
+        }
+        geo.attributes.position.needsUpdate = true;
+      },
+    };
+  })();
   const crystalMats = [new THREE.MeshBasicMaterial({ color: 0x5ef0ff }), new THREE.MeshBasicMaterial({ color: 0xb57bff })];
   const oreMat = new THREE.MeshBasicMaterial({ color: 0xe0892f });
   const exitMat = new THREE.MeshBasicMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.1, depthWrite: false, side: THREE.DoubleSide });
@@ -1719,7 +1837,8 @@
     const isWall = (r, c) => c < 0 || r < 0 || c >= n || r >= n || gen.grid[r * n + c] === 1;
     const shade = (hex) => { const c = new THREE.Color(hex); c.offsetHSL(0, 0, (rng() - 0.5) * 0.12); return c; };
 
-    // Пол и стены — одна сплошная скала: там, где клетка-стена, поверхность поднимается до потолка
+    // Пол и стены — одна сплошная неровная скала: там, где клетка-стена, поверхность поднимается до потолка
+    const M = caveMaterials();
     const wallness = (x, z) => {
       const fc = x / C + n / 2 - 0.5, fr = z / C + n / 2 - 0.5;
       const c0 = Math.floor(fc), r0 = Math.floor(fr), tx = fc - c0, tz = fr - r0;
@@ -1727,50 +1846,82 @@
       return lerp(lerp(v(r0, c0), v(r0, c0 + 1), tx), lerp(v(r0 + 1, c0), v(r0 + 1, c0 + 1), tx), tz);
     };
     const seed = 500 + index * 7;
-    const SUB = 3, border = 4, size = (n + border * 2) * C;
+    const SUB = 4, border = 4, size = (n + border * 2) * C;
     const rockGeo = new THREE.PlaneGeometry(size, size, (n + border * 2) * SUB, (n + border * 2) * SUB);
     rockGeo.rotateX(-Math.PI / 2);
     const pos = rockGeo.attributes.position, colors = new Float32Array(pos.count * 3);
-    const floorCol = new THREE.Color(0x5a5048), wallCol = new THREE.Color(0x857a70), topCol = new THREE.Color(0x3b342f), mineral = new THREE.Color(0x6a5a8a), col = new THREE.Color();
+    const floorCol = new THREE.Color(0x8c8278), wallCol = new THREE.Color(0xb0a596), topCol = new THREE.Color(0x6a6058), wetCol = new THREE.Color(0x5c544e), col = new THREE.Color();
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), z = pos.getZ(i);
-      const w = clamp(wallness(x, z) + (vnoise(x * 0.55, z * 0.55, seed) - 0.5) * 0.3, 0, 1);
-      const k = smoothstep(0.32, 0.68, w);
-      const bump = (vnoise(x * 0.9, z * 0.9, seed + 1) - 0.5) * 0.25;
-      const h = k * (CAVE.ceil + 0.6 + vnoise(x * 0.3, z * 0.3, seed + 2) * 1.2) + bump * (1 - k);
-      pos.setY(i, h);
-      col.copy(floorCol).lerp(wallCol, smoothstep(0.05, 0.4, k)).lerp(topCol, smoothstep(0.55, 1, k));
-      if (vnoise(x * 0.25, z * 0.25, seed + 3) > 0.72) col.lerp(mineral, 0.35);
-      col.multiplyScalar(0.85 + vnoise(x * 2.1, z * 2.1, seed + 4) * 0.3);
+      const w = clamp(wallness(x, z) + (fbm(x * 0.35, z * 0.35, seed, 3) - 0.5) * 0.45, 0, 1);
+      const k = smoothstep(0.3, 0.7, w);
+      // Выступы и ниши: точки стены сдвигаются вбок
+      const side = k * (1 - k) * 4;
+      const ox = (vnoise(x * 0.5, z * 0.5, seed + 5) - 0.5) * 1.6 * side, oz = (vnoise(x * 0.5 + 9, z * 0.5, seed + 6) - 0.5) * 1.6 * side;
+      const floorBump = (fbm(x * 0.4, z * 0.4, seed + 1, 3) - 0.5) * 0.7 + Math.max(0, vnoise(x * 1.3, z * 1.3, seed + 8) - 0.8) * 1.4;
+      const wallH = CAVE.ceil + 0.8 + (fbm(x * 0.25, z * 0.25, seed + 2, 3) - 0.3) * 2.5;
+      pos.setXYZ(i, x + ox, k * wallH + floorBump * (1 - k), z + oz);
+      col.copy(floorCol).lerp(wallCol, smoothstep(0.08, 0.45, k)).lerp(topCol, smoothstep(0.6, 1, k));
+      if (k < 0.1 && floorBump < -0.15) col.lerp(wetCol, 0.6);
+      col.multiplyScalar(0.8 + fbm(x * 0.15, z * 0.15, seed + 4, 2) * 0.4);
       colors[i * 3] = col.r; colors[i * 3 + 1] = col.g; colors[i * 3 + 2] = col.b;
     }
     rockGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     rockGeo.computeVertexNormals();
-    const rock = new THREE.Mesh(rockGeo, caveRockMat);
+    const rock = new THREE.Mesh(rockGeo, M.rock);
     rock.position.y = Y;
-    rock.receiveShadow = true;
     rock.userData.ownGeometry = true;
     caveGroup.add(rock);
 
-    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(size, size), caveCeilMat);
-    ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.y = Y + CAVE.ceil;
+    // Бугристый потолок
+    const ceilGeo = new THREE.PlaneGeometry(size, size, (n + border * 2) * 2, (n + border * 2) * 2);
+    ceilGeo.rotateX(Math.PI / 2);
+    const cp = ceilGeo.attributes.position, cc = new Float32Array(cp.count * 3);
+    for (let i = 0; i < cp.count; i++) {
+      const x = cp.getX(i), z = cp.getZ(i);
+      cp.setY(i, CAVE.ceil - fbm(x * 0.18, z * 0.18, seed + 11, 4) * 2.2);
+      const v = 0.45 + vnoise(x * 0.2, z * 0.2, seed + 12) * 0.25;
+      cc[i * 3] = v; cc[i * 3 + 1] = v * 0.94; cc[i * 3 + 2] = v * 0.88;
+    }
+    ceilGeo.setAttribute('color', new THREE.BufferAttribute(cc, 3));
+    ceilGeo.computeVertexNormals();
+    const ceiling = new THREE.Mesh(ceilGeo, M.rock);
+    ceiling.position.y = Y;
     ceiling.userData.ownGeometry = true;
     caveGroup.add(ceiling);
 
-    // Сталагмиты у стен и сталактиты на потолке
-    const spikeBatch = new Batch(GEO.cone, caveWallMat, { colored: true });
+    // Сталагмиты, сталактиты, щебень и лужи
+    const spikeBatch = new Batch(GEO.cone, M.boulder, { colored: true });
+    const rubbleBatch = new Batch(GEO.rock, M.boulder, { colored: true });
+    const tone = () => { const v = 0.45 + rng() * 0.25; return new THREE.Color(v, v * 0.95, v * 0.9); };
     const edgeFloors = [];
+    let puddles = 0;
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
       if (isWall(r, c)) continue;
       const x = caveCenter(c), z = caveCenter(r);
       let adj = 0;
       for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) adj += isWall(r + dr, c + dc) ? 1 : 0;
-      if (adj > 0 && Math.hypot(c - gen.entry.c, r - gen.entry.r) > 5) edgeFloors.push({ r, c, x, z });
-      if (adj > 0 && rng() < 0.14) spikeBatch.add(matrixOf(x + (rng() - 0.5) * 1.2, Y - 0.1, z + (rng() - 0.5) * 1.2, 0.28, 0.8 + rng() * 1.3, 0.28, rng() * 3), shade(0x6a6476));
-      if (rng() < 0.07) spikeBatch.add(matrixOf(x + (rng() - 0.5) * 1.6, Y + CAVE.ceil + 0.1, z + (rng() - 0.5) * 1.6, 0.3, 0.9 + rng() * 1.6, 0.3, rng() * 3, Math.PI), shade(0x4a4552));
+      const nearEntry = Math.hypot(c - gen.entry.c, r - gen.entry.r) <= 5;
+      if (adj > 0 && !nearEntry) edgeFloors.push({ r, c, x, z });
+      if (adj > 0 && rng() < 0.16) spikeBatch.add(matrixOf(x + (rng() - 0.5) * 1.4, Y - 0.2, z + (rng() - 0.5) * 1.4, 0.22 + rng() * 0.2, 0.9 + rng() * 1.8, 0.22 + rng() * 0.2, rng() * 3), tone());
+      if (rng() < 0.09) spikeBatch.add(matrixOf(x + (rng() - 0.5) * 1.8, Y + CAVE.ceil - 0.6, z + (rng() - 0.5) * 1.8, 0.2 + rng() * 0.25, 1 + rng() * 2.2, 0.2 + rng() * 0.25, rng() * 3, Math.PI), tone());
+      const pebbles = adj > 0 ? 3 : rng() < 0.3 ? 1 : 0;
+      for (let k = 0; k < pebbles; k++) {
+        const sc = 0.08 + rng() * (adj > 0 ? 0.35 : 0.18);
+        rubbleBatch.add(matrixOf(x + (rng() - 0.5) * 2.4, Y + sc * 0.2, z + (rng() - 0.5) * 2.4, sc, sc * 0.7, sc * (0.8 + rng() * 0.4), rng() * TAU, rng(), rng()), tone());
+      }
+      if (!nearEntry && adj === 0 && puddles < 14 && rng() < 0.04) {
+        puddles++;
+        const pd = new THREE.Mesh(new THREE.CircleGeometry(0.8 + rng() * 1.2, 18), M.puddle);
+        pd.rotation.x = -Math.PI / 2;
+        pd.scale.set(1, 0.6 + rng() * 0.5, 1);
+        pd.position.set(x, Y + 0.06, z);
+        pd.userData.ownGeometry = true;
+        caveGroup.add(pd);
+      }
     }
     if (spikeBatch.items.length) spikeBatch.build(caveGroup);
+    if (rubbleBatch.items.length) rubbleBatch.build(caveGroup);
 
     // Железо и кристаллы у стен
     for (let i = edgeFloors.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [edgeFloors[i], edgeFloors[j]] = [edgeFloors[j], edgeFloors[i]]; }
@@ -1780,7 +1931,7 @@
       const g = new THREE.Group();
       g.position.set(p.x, Y, p.z);
       if (type === 'iron') {
-        const rock = new THREE.Mesh(GEO.rock, MAT.rockStatic);
+        const rock = new THREE.Mesh(GEO.rock, M.ore);
         rock.scale.set(0.9, 0.7, 0.85); rock.position.y = 0.35; rock.rotation.set(rng(), rng() * 3, 0);
         g.add(rock);
         for (let k = 0; k < 6; k++) {
@@ -1800,6 +1951,12 @@
           cr.rotation.set((rng() - 0.5) * 0.7, rng() * 3, (rng() - 0.5) * 0.7);
           g.add(cr);
         }
+        const glow = new THREE.Sprite(M.glow.clone());
+        glow.material.color.copy(mat.color);
+        glow.material.opacity = 0.55;
+        glow.scale.setScalar(3.2);
+        glow.position.y = 0.9;
+        g.add(glow);
       }
       caveGroup.add(g);
       data.resources.push({ type, cfg: CFG.res[type], x: p.x, z: p.z, y: Y, r: 0.7, left: CFG.res[type].amount, active: true, g, hitT: 0 });
@@ -2127,14 +2284,16 @@
     const showSky = !inCave;
     sky.visible = sunDisk.visible = moonDisk.visible = stars.visible = clouds.visible = showSky;
     if (inCave) {
-      scene.background.setRGB(0.01, 0.01, 0.015);
-      scene.fog.near = 6; scene.fog.far = P.lantern ? 55 : 34;
-      hemi.intensity = P.lantern ? 0.45 : 0.36; hemi.color.setHex(0xa79c94); hemi.groundColor.setHex(0x2a2420);
+      scene.background.setRGB(0.008, 0.007, 0.006);
+      scene.fog.near = 3; scene.fog.far = P.lantern ? 40 : 24;
+      hemi.intensity = P.lantern ? 0.16 : 0.12; hemi.color.setHex(0x9a8f86); hemi.groundColor.setHex(0x1c1814);
       sun.intensity = 0;
-      playerLight.intensity = P.lantern ? 2.6 : 1.3;
-      playerLight.distance = P.lantern ? 26 : 13;
-      playerLight.color.setHex(P.lantern ? 0xfff0d8 : 0xffd2a0);
-      playerLight.position.set(P.x, P.y + 2.6, P.z);
+      const flicker = 1 + Math.sin(W.clock * 13) * 0.04 + Math.sin(W.clock * 7.3) * 0.05;
+      playerLight.decay = 1.4;
+      playerLight.intensity = (P.lantern ? 3.4 : 1.9) * flicker;
+      playerLight.distance = P.lantern ? 30 : 16;
+      playerLight.color.setHex(P.lantern ? 0xfff0dc : 0xffd2a8);
+      playerLight.position.set(P.x + Math.sin(P.face) * 0.6, P.y + 2.3, P.z + Math.cos(P.face) * 0.6);
       nightK = 1;
       return;
     }
@@ -2170,6 +2329,7 @@
     sky.position.copy(camera.position);
     waterMat.uniforms.uLight.value = 0.35 + 0.65 * dl;
     const torch = P.lantern ? 1.9 : 1.0;
+    playerLight.decay = 1;
     playerLight.color.setHex(P.lantern ? 0xcff6ff : 0xffd2a0);
     playerLight.intensity = nightK * torch * 1.2;
     playerLight.distance = P.lantern ? 22 : 12;
@@ -2571,6 +2731,7 @@
     last = now;
     const inMenu = screen === 'menu';
     windTime.value += dt;
+    dust.update(windTime.value);
     waterMat.uniforms.uTime.value += dt;
     clouds.position.x = ((windTime.value * 1.6) % 1040) - 520;
 
