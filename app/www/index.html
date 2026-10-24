@@ -251,6 +251,9 @@
   .confirm { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; background: var(--panel-solid); border: 1px solid var(--line); }
   .confirm p { margin: 0; font-size: 14px; }
   .version { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+  .install { text-align: left; }
+  .install b { color: var(--ember); }
+  .install ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
 
   .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 14px; text-align: left; }
   .rules li { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: baseline; }
@@ -334,7 +337,16 @@
         <button class="btn primary" id="btnNewYes" type="button">Начать</button>
       </div>
     </div>
-    <span class="version">Версия 0.2</span>
+    <button class="btn" id="btnInstall" type="button" hidden>Установить на телефон</button>
+    <div class="confirm install" id="installHint" hidden>
+      <p><b>Установи игру на iPhone</b></p>
+      <ol>
+        <li>Нажми кнопку «Поделиться» внизу Safari (квадрат со стрелкой вверх).</li>
+        <li>Выбери «На экран Домой».</li>
+        <li>Нажми «Добавить». Игра появится на экране с иконкой костра.</li>
+      </ol>
+    </div>
+    <span class="version">Версия 0.3</span>
   </div>
 </div>
 
@@ -1516,7 +1528,25 @@
   function openPanel(name, from) { panelReturn = from; showScreen(name); }
   document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => showScreen(panelReturn)));
 
+  const isStandalone = !!window.Capacitor || navigator.standalone === true ||
+    matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const onOwnSite = /^https?:$/.test(location.protocol) && !/claude/.test(location.hostname);
+  let installEvent = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installEvent = e;
+    if (screen === 'menu') refreshMenu();
+  });
+  $('btnInstall').addEventListener('click', () => {
+    if (!installEvent) return;
+    installEvent.prompt();
+    installEvent.userChoice.finally(() => { installEvent = null; refreshMenu(); });
+  });
+
   function refreshMenu() {
+    $('btnInstall').hidden = !installEvent || isStandalone;
+    $('installHint').hidden = !(isIOS && onOwnSite && !isStandalone);
     const saved = hasSave();
     $('btnContinue').hidden = !saved;
     $('btnNew').classList.toggle('primary', !saved);
