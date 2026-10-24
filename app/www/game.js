@@ -7,15 +7,16 @@
   // ==================================================================
   const CFG = {
     dayLen: 150, nightLen: 100,
-    maxHunger: 100, maxThirst: 100, hungerDecay: 0.4, thirstDecay: 0.55,
+    maxHunger: 100, maxThirst: 100, hungerDecay: 0.14, thirstDecay: 0.2,
     starveDmg: 3, regenThreshold: 50, regen: 0.6, berryFood: 20, drink: 35,
     playerSpeed: 6, swimSpeed: 0.55, jumpSpeed: 7.2, gravity: 22,
     reach: 1.4, gatherCd: 0.42, attackReach: 2.4,
     weapons: {
-      fist: { dmg: 8, cd: 0.5 },
-      sword: { dmg: 25, cd: 0.42 },
-      iron: { dmg: 42, cd: 0.4 },
+      fist: { dmg: 10, cd: 0.45 },
+      sword: { dmg: 40, cd: 0.4 },
+      iron: { dmg: 70, cd: 0.38 },
     },
+    bag: { slots: 30, stack: 64 },
     campfire: { life: 240, radius: 7, heal: 4 },
     wall: { hp: 150 },
     zombie: { hp: 60, hpDay: 10, speed: 3.2, speedDay: 0.12, maxSpeed: 4.6, dmg: 15, range: 1.35, cd: 1,
@@ -32,8 +33,8 @@
   };
   const ITEMS = { wood: 'Древесина', stone: 'Камень', berry: 'Ягоды', iron: 'Железо', crystal: 'Кристалл' };
   const RECIPES = [
-    { id: 'sword', name: 'Меч', cost: { wood: 3, stone: 2 }, desc: 'Удар 25 вместо 8 кулаком' },
-    { id: 'iron', name: 'Железный меч', cost: { wood: 2, iron: 4 }, desc: 'Удар 42. Железо есть в пещерах' },
+    { id: 'sword', name: 'Меч', cost: { wood: 3, stone: 2 }, desc: 'Удар 40 вместо 10 кулаком' },
+    { id: 'iron', name: 'Железный меч', cost: { wood: 2, iron: 4 }, desc: 'Удар 70. Железо есть в пещерах' },
     { id: 'lantern', name: 'Фонарь', cost: { wood: 2, crystal: 2 }, desc: 'Ярко светит ночью и в пещерах' },
     { id: 'campfire', name: 'Костёр', cost: { wood: 5, stone: 3 }, desc: 'Светит и лечит рядом 4 минуты' },
     { id: 'wall', name: 'Стена', cost: { wood: 4 }, desc: 'Зомби придётся её ломать' },
@@ -887,11 +888,11 @@
   // ==================================================================
   function buildCaveEntrances() {
     const rng = mulberry32(4242);
-    for (let tries = 0; tries < 6000 && caveEntrances.length < 5; tries++) {
+    for (let tries = 0; tries < 9000 && caveEntrances.length < 8; tries++) {
       const x = (rng() * 2 - 1) * (HALF - 90), z = (rng() * 2 - 1) * (HALF - 90);
       const h = getHeight(x, z), s = slopeAt(x, z);
       if (h < 7 || h > 20 || s < 0.25 || s > 0.85) continue;
-      if (Math.hypot(x, z) < 60 || caveEntrances.some((e) => Math.hypot(e.x - x, e.z - z) < 110)) continue;
+      if (Math.hypot(x, z) < 60 || caveEntrances.some((e) => Math.hypot(e.x - x, e.z - z) < 85)) continue;
       // Вход смотрит вниз по склону
       const gx = getHeight(x + 2, z) - getHeight(x - 2, z), gz = getHeight(x, z + 2) - getHeight(x, z - 2);
       const face = Math.atan2(-gx, -gz);
@@ -913,7 +914,7 @@
       hole.position.set(0, 1.7, 0.6);
       g.add(hole);
       surface.add(g);
-      const e = { x, z, face, ix: x + fx * 3.2, iz: z + fz * 3.2, index: caveEntrances.length };
+      const e = { x, z, face, ix: x + fx * 3.2, iz: z + fz * 3.2, hx: x + fx * 1.0, hz: z + fz * 1.0, index: caveEntrances.length };
       caveEntrances.push(e);
       for (const [lx, lz, r] of [[-2.4, 0, 1.5], [2.4, 0, 1.5], [0, -2.6, 2.8]]) {
         const wx = x + lx * Math.cos(face) + lz * Math.sin(face), wz = z - lx * Math.sin(face) + lz * Math.cos(face);
@@ -1008,11 +1009,36 @@
     return {
       x: 0, z: 0, y: getHeight(0, 0), vy: 0, grounded: true, swimming: false, r: 0.4, face: 0, hp: 100, maxHp: 100,
       hunger: CFG.maxHunger, thirst: CFG.maxThirst,
-      inv: { wood: 0, stone: 0, berry: 0, iron: 0, crystal: 0 }, weapon: 'fist', lantern: false,
+      slots: new Array(CFG.bag.slots).fill(null), weapon: 'fist', lantern: false, caveCd: 0,
       kills: 0, nights: 0, dead: false, deadT: 0,
       walk: 0, walkAmt: 0, stepIdx: 0, swingT: 0, actCd: 0, starveWarned: false,
     };
   }
+
+  // Рюкзак: 30 ячеек, до 64 одинаковых вещей в ячейке
+  function invCount(id) { let n = 0; for (const s of P.slots) if (s && s.id === id) n += s.n; return n; }
+  function invSpace(id) { let n = 0; for (const s of P.slots) n += !s ? CFG.bag.stack : s.id === id ? CFG.bag.stack - s.n : 0; return n; }
+  function invAdd(id, n) {
+    let left = n;
+    for (const s of P.slots) {
+      if (left > 0 && s && s.id === id && s.n < CFG.bag.stack) { const k = Math.min(left, CFG.bag.stack - s.n); s.n += k; left -= k; }
+    }
+    for (let i = 0; i < P.slots.length && left > 0; i++) {
+      if (!P.slots[i]) { const k = Math.min(left, CFG.bag.stack); P.slots[i] = { id, n: k }; left -= k; }
+    }
+    bagDirty = true;
+    return n - left;
+  }
+  function invRemove(id, n) {
+    let left = n;
+    for (let i = P.slots.length - 1; i >= 0 && left > 0; i--) {
+      const s = P.slots[i];
+      if (s && s.id === id) { const k = Math.min(left, s.n); s.n -= k; left -= k; if (s.n <= 0) P.slots[i] = null; }
+    }
+    bagDirty = true;
+    return n - left;
+  }
+  const usedSlots = () => P.slots.filter(Boolean).length;
 
   function clearWorld() {
     if (inCave) leaveCave(true);
@@ -1023,6 +1049,8 @@
     for (const c of campfires) removeCampfire(c, true);
     campfires.length = 0;
     for (const r of resources) { r.left = r.cfg.amount; setResVisible(r, true); }
+    for (const d of drops) if (d.mesh.parent) d.mesh.parent.remove(d.mesh);
+    drops.length = 0;
   }
 
   function resetGame() {
@@ -1051,7 +1079,7 @@
     return {
       v: SAVE_VERSION,
       P: { x: pos.x, z: pos.z, face: P.face, hp: P.hp, hunger: P.hunger, thirst: P.thirst,
-        inv: Object.assign({}, P.inv), weapon: P.weapon, lantern: P.lantern, kills: P.kills, nights: P.nights },
+        slots: P.slots.map((s) => (s ? { id: s.id, n: s.n } : null)), weapon: P.weapon, lantern: P.lantern, kills: P.kills, nights: P.nights },
       W: { day: W.day, night: W.night, t: W.t, warned: W.warned },
       zombies: W.night ? zombies.filter((z) => !z.dead && !z.burn && !z.cave).length + W.toSpawn : 0,
       walls: walls.map((w) => ({ x: w.x, z: w.z, rot: w.rot, hp: w.hp })),
@@ -1065,9 +1093,14 @@
     Object.assign(P, {
       hp: sp.hp > 0 ? sp.hp : 1, hunger: sp.hunger, thirst: sp.thirst, face: sp.face || 0,
       kills: sp.kills || 0, nights: sp.nights || 0,
-      inv: Object.assign({ wood: 0, stone: 0, berry: 0, iron: 0, crystal: 0 }, sp.inv),
       weapon: sp.weapon || (sp.hasSword ? 'sword' : 'fist'), lantern: !!sp.lantern,
     });
+    if (Array.isArray(sp.slots)) {
+      sp.slots.slice(0, CFG.bag.slots).forEach((s, i) => { if (s && ITEMS[s.id] && s.n > 0) P.slots[i] = { id: s.id, n: Math.min(s.n, CFG.bag.stack) }; });
+    } else if (sp.inv) {
+      // Старое сохранение: переносим ресурсы в ячейки
+      for (const k of Object.keys(sp.inv)) if (ITEMS[k] && sp.inv[k] > 0) invAdd(k, sp.inv[k]);
+    }
     // Старые сохранения были на другой карте: начинаем на поляне, но с вещами
     if (data.v === SAVE_VERSION) {
       P.x = sp.x; P.z = sp.z;
@@ -1117,7 +1150,7 @@
   const look = { id: null, lastX: 0, lastY: 0 };
   let actionHeld = false, jumpQueued = false;
   const touchLayer = $('touch'), joyEl = $('joy'), knob = $('knob');
-  const playing = () => screen === 'game' && !craftOpen;
+  const playing = () => screen === 'game' && !craftOpen && !bagOpen;
 
   touchLayer.addEventListener('pointerdown', (e) => {
     if (!playing()) return;
@@ -1168,12 +1201,15 @@
     if (e.repeat) return;
     keys[e.code] = true;
     if (e.code === 'Escape') {
-      if (craftOpen) toggleCraft(false);
+      if (bagOpen) toggleBag(false);
+      else if (craftOpen) toggleCraft(false);
       else if (screen === 'game') showScreen('pause');
       else if (screen === 'pause') showScreen('game');
       return;
     }
-    if (!playing() && !(craftOpen && e.code === 'KeyC')) return;
+    const bagKey = e.code === 'KeyI' || e.code === 'KeyB';
+    if (!playing() && !(craftOpen && e.code === 'KeyC') && !(bagOpen && bagKey)) return;
+    if (bagKey) toggleBag();
     if (e.code === 'KeyE') actionHeld = true;
     if (e.code === 'Space') { jumpQueued = true; e.preventDefault(); }
     if (e.code === 'KeyF') eat();
@@ -1317,18 +1353,16 @@
     for (const [dx, dz] of [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]]) if (getHeight(P.x + dx, P.z + dz) < WATER - 0.15) return true;
     return false;
   }
-  function nearCaveEntrance() {
+  // Вход в пещеру — тёмный проход, выход — столб света: достаточно в них зайти
+  function caveDoorAt() {
     if (inCave) return null;
-    return caveEntrances.find((e) => Math.hypot(e.ix - P.x, e.iz - P.z) < 3.2) || null;
+    return caveEntrances.find((e) => Math.hypot(e.hx - P.x, e.hz - P.z) < 1.25) || null;
   }
-  const nearCaveExit = () => inCave && Math.hypot(cave.exit.x - P.x, cave.exit.z - P.z) < 3.4;
+  const atCaveExit = () => inCave && cave && Math.hypot(cave.exit.x - P.x, cave.exit.z - P.z) < 1.5;
 
   function context() {
     const z = nearestZombie(CFG.attackReach);
     if (z) return { kind: 'attack', target: z, label: 'Удар' };
-    if (nearCaveExit()) return { kind: 'exit', label: 'Выйти' };
-    const ent = nearCaveEntrance();
-    if (ent) return { kind: 'enter', target: ent, label: 'В пещеру' };
     const r = nearestResource();
     if (r) return { kind: 'gather', target: r, label: r.cfg.action };
     if (nearWater()) return { kind: 'drink', label: 'Пить' };
@@ -1341,15 +1375,23 @@
     if (ctx.kind === 'attack') {
       const z = ctx.target, weapon = CFG.weapons[P.weapon];
       faceTo(z.x, z.z);
-      hitZombie(z, weapon.dmg);
+      const f = forward();
+      // Взмах задевает всех зомби перед игроком
+      for (const o of zombies.slice()) {
+        if (o.dead || o.burn || !!o.cave !== !!inCave) continue;
+        const dx = o.x - P.x, dz = o.z - P.z, d = Math.hypot(dx, dz) || 1;
+        if (o === z || (d < CFG.attackReach + 0.4 && (dx * f.x + dz * f.z) / d > 0.3)) hitZombie(o, weapon.dmg);
+      }
+      if (P.weapon !== 'fist') Sound.play('swing');
       P.actCd = weapon.cd;
     } else if (ctx.kind === 'gather') {
       const r = ctx.target;
       faceTo(r.x, r.z);
+      if (invSpace(r.cfg.item) < 1) { toast('Рюкзак полон. Выброси что-нибудь', 'warn'); P.actCd = 0.6; return; }
       r.left--;
       r.hitT = 0.18;
       shaking.add(r);
-      P.inv[r.cfg.item]++;
+      invAdd(r.cfg.item, 1);
       Sound.play(r.cfg.sound);
       toast('+1 ' + ITEMS[r.cfg.item], 'item');
       if (r.left <= 0) { setResVisible(r, false); shaking.delete(r); r.respawnAt = W.clock + r.cfg.respawn; }
@@ -1359,14 +1401,6 @@
       if (P.thirst >= CFG.maxThirst - 1) toast('Ты не хочешь пить');
       else { P.thirst = Math.min(CFG.maxThirst, P.thirst + CFG.drink); Sound.play('drink'); toast('Ты попил воды', 'item'); }
       P.actCd = 0.8;
-    } else if (ctx.kind === 'enter') {
-      P.swingT = 0;
-      enterCave(ctx.target);
-      P.actCd = 1;
-    } else if (ctx.kind === 'exit') {
-      P.swingT = 0;
-      leaveCave(false);
-      P.actCd = 1;
     } else {
       Sound.play('swing');
       P.actCd = CFG.weapons[P.weapon].cd;
@@ -1374,10 +1408,13 @@
   }
 
   function eat() {
-    if (!playing() || P.dead) return;
-    if (P.inv.berry < 1) { toast('Нет ягод. Ищи кусты с красными ягодами', 'warn'); return; }
+    if (playing()) eatBerry();
+  }
+  function eatBerry() {
+    if (P.dead) return;
+    if (invCount('berry') < 1) { toast('Нет ягод. Ищи кусты с красными ягодами', 'warn'); return; }
     if (P.hunger >= CFG.maxHunger - 1) { toast('Ты не голоден'); return; }
-    P.inv.berry--;
+    invRemove('berry', 1);
     P.hunger = Math.min(CFG.maxHunger, P.hunger + CFG.berryFood);
     Sound.play('eat');
     toast('Ням! +' + CFG.berryFood + ' к сытости', 'item');
@@ -1402,6 +1439,7 @@
     P.deadT = 0;
     releaseAllInput();
     toggleCraft(false);
+    toggleBag(false);
     writeJson(KEYS.save, null);
     Sound.play('death');
     $('deadDays').textContent = P.nights;
@@ -1413,7 +1451,7 @@
   // ==================================================================
   // Крафт
   // ==================================================================
-  const canAfford = (cost) => Object.keys(cost).every((k) => P.inv[k] >= cost[k]);
+  const canAfford = (cost) => Object.keys(cost).every((k) => invCount(k) >= cost[k]);
   const owned = (id) => (id === 'sword' && (P.weapon === 'sword' || P.weapon === 'iron')) || (id === 'iron' && P.weapon === 'iron') || (id === 'lantern' && P.lantern);
   const recipeBox = $('recipes');
   const recipeEls = RECIPES.map((rec) => {
@@ -1431,6 +1469,7 @@
   function toggleCraft(force) {
     craftOpen = typeof force === 'boolean' ? force : !craftOpen;
     if (screen !== 'game' || P.dead) craftOpen = false;
+    if (craftOpen && bagOpen) toggleBag(false);
     $('craft').hidden = !craftOpen;
     releaseAllInput();
     updateCraftSheet();
@@ -1441,7 +1480,7 @@
       const has = owned(r.rec.id);
       r.btn.disabled = has || !canAfford(r.rec.cost);
       r.btn.textContent = has ? 'Есть' : 'Создать';
-      r.costs.forEach((s) => s.classList.toggle('miss', P.inv[s.dataset.item] < r.rec.cost[s.dataset.item]));
+      r.costs.forEach((s) => s.classList.toggle('miss', invCount(s.dataset.item) < r.rec.cost[s.dataset.item]));
     }
   }
 
@@ -1450,7 +1489,7 @@
     if (owned(rec.id)) { toast('У тебя это уже есть', 'warn'); return; }
     if ((rec.id === 'campfire' || rec.id === 'wall') && inCave) { toast('В пещере строить нельзя', 'warn'); return; }
     if (!canAfford(rec.cost)) { toast('Не хватает ресурсов', 'warn'); return; }
-    for (const k of Object.keys(rec.cost)) P.inv[k] -= rec.cost[k];
+    for (const k of Object.keys(rec.cost)) invRemove(k, rec.cost[k]);
     const f = forward();
     if (rec.id === 'sword') P.weapon = 'sword';
     else if (rec.id === 'iron') P.weapon = 'iron';
@@ -1461,6 +1500,103 @@
     Sound.play('craft');
     toast('Создано: ' + rec.name, 'good');
     toggleCraft(false);
+  }
+
+  // ==================================================================
+  // Рюкзак: ячейки, выбросить вещи, подобрать с земли
+  // ==================================================================
+  let bagOpen = false, bagDirty = true, selectedSlot = -1;
+  const itemIcon = (id) => '<i class="ic ' + id + '"></i>';
+  const slotEls = [];
+  for (let i = 0; i < CFG.bag.slots; i++) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'slot';
+    b.id = 'slot-' + i;
+    b.addEventListener('click', () => { selectedSlot = selectedSlot === i ? -1 : i; renderBag(); });
+    $('slots').appendChild(b);
+    slotEls.push(b);
+  }
+  function renderBag() {
+    if (!bagOpen) return;
+    bagDirty = false;
+    if (selectedSlot >= 0 && !P.slots[selectedSlot]) selectedSlot = -1;
+    P.slots.forEach((s, i) => {
+      const el = slotEls[i];
+      el.classList.toggle('sel', i === selectedSlot);
+      el.classList.toggle('empty', !s);
+      const html = s ? itemIcon(s.id) + '<b>' + s.n + '</b>' : '';
+      if (el.innerHTML !== html) el.innerHTML = html;
+      el.setAttribute('aria-label', s ? ITEMS[s.id] + ', ' + s.n + ' шт.' : 'Пустая ячейка');
+    });
+    $('bagUsed').textContent = usedSlots() + ' / ' + CFG.bag.slots;
+    const s = selectedSlot >= 0 ? P.slots[selectedSlot] : null;
+    $('slotInfo').hidden = !s;
+    $('bagHint').hidden = !!s;
+    if (s) {
+      $('slotName').innerHTML = itemIcon(s.id) + ITEMS[s.id] + ' <span>×' + s.n + '</span>';
+      $('dropHalf').textContent = 'Половину (' + Math.max(1, Math.floor(s.n / 2)) + ')';
+      $('dropAll').textContent = 'Всё (' + s.n + ')';
+      $('slotEat').hidden = s.id !== 'berry';
+    }
+  }
+  function toggleBag(force) {
+    bagOpen = typeof force === 'boolean' ? force : !bagOpen;
+    if (screen !== 'game' || P.dead) bagOpen = false;
+    if (bagOpen && craftOpen) toggleCraft(false);
+    $('bag').hidden = !bagOpen;
+    releaseAllInput();
+    selectedSlot = -1;
+    renderBag();
+  }
+  function dropFromSlot(amount) {
+    const s = P.slots[selectedSlot];
+    if (!s) return;
+    const n = clamp(amount, 1, s.n);
+    s.n -= n;
+    if (s.n <= 0) P.slots[selectedSlot] = null;
+    spawnDrop(s.id, n);
+    Sound.play('pick');
+    toast('Выброшено: ' + ITEMS[s.id] + ' ×' + n, 'item');
+    bagDirty = true;
+    renderBag();
+  }
+  $('btnBag').addEventListener('click', () => toggleBag());
+  $('bagClose').addEventListener('click', () => toggleBag(false));
+  $('drop1').addEventListener('click', () => dropFromSlot(1));
+  $('dropHalf').addEventListener('click', () => { const s = P.slots[selectedSlot]; if (s) dropFromSlot(Math.floor(s.n / 2)); });
+  $('dropAll').addEventListener('click', () => { const s = P.slots[selectedSlot]; if (s) dropFromSlot(s.n); });
+  $('slotEat').addEventListener('click', () => { eatBerry(); renderBag(); });
+
+  const drops = [];
+  const dropMats = {};
+  for (const [id, hex] of Object.entries({ wood: 0x8a5a33, stone: 0x9a9ea3, berry: 0xd0263f, iron: 0xd9822b, crystal: 0x6fe7ff })) {
+    dropMats[id] = lam(hex, { emissive: hex, emissiveIntensity: 0.3 });
+  }
+  function spawnDrop(id, n) {
+    const f = forward();
+    const x = P.x + f.x * 1.4 + rand(-0.3, 0.3), z = P.z + f.z * 1.4 + rand(-0.3, 0.3);
+    const m = new THREE.Mesh(GEO.box, dropMats[id]);
+    m.scale.setScalar(n >= 16 ? 0.45 : 0.32);
+    m.castShadow = true;
+    (inCave ? caveGroup : surface).add(m);
+    drops.push({ id, n, x, z, mesh: m, cave: !!inCave, age: 0 });
+  }
+  function updateDrops(dt) {
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const d = drops[i];
+      if (!!d.cave !== !!inCave) continue;
+      d.age += dt;
+      const g = inCave ? CAVE.y : Math.max(getHeight(d.x, d.z), WATER - 0.15);
+      d.mesh.position.set(d.x, g + 0.4 + Math.sin(d.age * 3) * 0.08, d.z);
+      d.mesh.rotation.y = d.age * 1.5;
+      // Подбираем, когда игрок подходит (не сразу после выброса)
+      if (d.age > 1.5 && !P.dead && Math.hypot(d.x - P.x, d.z - P.z) < 1.3) {
+        const got = invAdd(d.id, d.n);
+        if (got > 0) { d.n -= got; Sound.play('pick'); toast('+' + got + ' ' + ITEMS[d.id], 'item'); }
+        if (d.n <= 0) { if (d.mesh.parent) d.mesh.parent.remove(d.mesh); drops.splice(i, 1); }
+      }
+    }
   }
 
   const WALL_COLOR = new THREE.Color(0x9a6b40), WALL_BROKEN = new THREE.Color(0x3a2a1c);
@@ -1688,6 +1824,7 @@
       Sound.play('cave');
       updateCamera(0, true, false);
       toast('Пещера. Ищи железо и кристаллы', 'good');
+      toast('Чтобы выйти, зайди в столб света', 'item');
       if (!P.lantern) toast('Здесь темно. Фонарь делается из кристаллов', 'warn');
     });
   }
@@ -1695,6 +1832,7 @@
   function leaveCave(silent) {
     const go = () => {
       for (let i = zombies.length - 1; i >= 0; i--) if (zombies[i].cave) { scene.remove(zombies[i].h.g, zombies[i].bar.g); zombies.splice(i, 1); }
+      for (let i = drops.length - 1; i >= 0; i--) if (drops[i].cave) { if (drops[i].mesh.parent) drops[i].mesh.parent.remove(drops[i].mesh); drops.splice(i, 1); }
       inCave = 0;
       surface.visible = true;
       caveGroup.visible = false;
@@ -2042,6 +2180,13 @@
     for (const z of zombies) if (!z.dead && !z.burn && !!z.cave === !!inCave) pushFromCircle(P, z.x, z.z, z.r);
     collide(P);
 
+    P.caveCd = Math.max(0, P.caveCd - dt);
+    if (P.caveCd <= 0) {
+      const door = caveDoorAt();
+      if (door) { P.caveCd = 2; enterCave(door); }
+      else if (atCaveExit()) { P.caveCd = 2; leaveCave(false); }
+    }
+
     // Высота: земля, прыжок или поверхность воды
     const g = groundY(P.x, P.z);
     if (jumpQueued) {
@@ -2201,11 +2346,6 @@
       const cx = ((P.x + HALF) / WORLD.size) * Sb, cz = ((P.z + HALF) / WORLD.size) * Sb;
       mmCtx.imageSmoothingEnabled = true;
       mmCtx.drawImage(mapBase, cx - src / 2, cz - src / 2, src, src, 0, 0, S, S);
-      for (const e of caveEntrances) {
-        const ex = S / 2 + ((e.x - P.x) / view) * S, ez = S / 2 + ((e.z - P.z) / view) * S;
-        mmCtx.fillStyle = '#111'; mmCtx.strokeStyle = '#ff8a3d'; mmCtx.lineWidth = 3;
-        mmCtx.beginPath(); mmCtx.arc(ex, ez, 7, 0, TAU); mmCtx.fill(); mmCtx.stroke();
-      }
       for (const c of campfires) {
         const fx = S / 2 + ((c.x - P.x) / view) * S, fz = S / 2 + ((c.z - P.z) / view) * S;
         mmCtx.fillStyle = '#ffb347'; mmCtx.beginPath(); mmCtx.arc(fx, fz, 4, 0, TAU); mmCtx.fill();
@@ -2232,7 +2372,7 @@
     root: $('hud'), day: $('day'), dayName: $('dayName'), dayPhase: $('dayPhase'), dayTime: $('dayTime'),
     hpFill: $('hpFill'), hpVal: $('hpVal'), foodFill: $('foodFill'), foodVal: $('foodVal'),
     waterFill: $('waterFill'), waterVal: $('waterVal'),
-    wood: $('invWood'), stone: $('invStone'), berry: $('invBerry'), iron: $('invIron'), crystal: $('invCrystal'), kills: $('kills'),
+    kills: $('kills'), bagCount: $('bagCount'),
     actLabel: $('actLabel'), eatCount: $('eatCount'), craft: $('btnCraft'), vignette: $('vignette'), mapLabel: $('mapLabel'),
   };
   let hudTimer = 0, mapTimer = 0;
@@ -2258,9 +2398,10 @@
     setText(hud.hpVal, Math.ceil(P.hp));
     setText(hud.foodVal, Math.ceil(P.hunger));
     setText(hud.waterVal, Math.ceil(P.thirst));
-    for (const k of ['wood', 'stone', 'berry', 'iron', 'crystal']) setText(hud[k], P.inv[k]);
     setText(hud.kills, P.kills);
-    setText(hud.eatCount, P.inv.berry);
+    setText(hud.eatCount, invCount('berry'));
+    setText(hud.bagCount, usedSlots() + '/' + CFG.bag.slots);
+    if (bagOpen && bagDirty) renderBag();
     const ctx = P.dead ? { label: '—', idle: true } : context();
     setText(hud.actLabel, ctx.label);
     btnAction.classList.toggle('idle', !!ctx.idle);
@@ -2277,7 +2418,7 @@
 
   function showScreen(name) {
     if (name === 'pause' && screen !== 'game') return;
-    if (screen === 'game' && name !== 'game') { releaseAllInput(); toggleCraft(false); persist(); }
+    if (screen === 'game' && name !== 'game') { releaseAllInput(); toggleCraft(false); toggleBag(false); persist(); }
     screen = ['how', 'records', 'settings'].includes(name) ? screen : name;
     for (const id of OVERLAYS) $(id).hidden = id !== name;
     hud.root.hidden = !(name === 'game' || name === 'dead');
@@ -2411,8 +2552,9 @@
     waterMat.uniforms.uTime.value += dt;
     clouds.position.x = ((windTime.value * 1.6) % 1040) - 520;
 
-    if (screen === 'game' && !craftOpen) {
+    if (screen === 'game' && !craftOpen && !bagOpen) {
       updateClock(dt);
+      updateDrops(dt);
       if (!P.dead) { updatePlayer(dt); updateSurvival(dt); }
       updateZombies(dt);
       updateWorldObjects(dt);
@@ -2480,11 +2622,11 @@
   // Отладка для разработки: открой игру с ?debug=1 в адресе
   if (/[?&]debug=1/.test(location.search)) {
     window.__game = {
-      P, W, caveEntrances, settings,
+      P, W, caveEntrances, settings, drops, get caveData() { return cave; },
       tp(x, z) { if (inCave) leaveCave(true); P.x = x; P.z = z; P.y = getHeight(x, z) + 2; updateGrass(true); },
       time(t, night) { W.t = t; W.night = !!night; },
       cave(i) { const e = caveEntrances[i || 0]; P.x = e.ix; P.z = e.iz; enterCave(e); },
-      give(k, n) { P.inv[k] = (P.inv[k] || 0) + n; },
+      give(k, n) { invAdd(k, n); },
       cam(yaw, pitch, dist) { camYaw = yaw; camPitch = pitch; if (dist) settings.dist = dist; },
       state() { return { inCave, x: P.x, z: P.z, y: P.y, swimming: P.swimming, zombies: zombies.length, res: resources.length }; },
     };
