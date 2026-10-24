@@ -1,0 +1,1349 @@
+<title>Долгая ночь</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&family=Unbounded:wght@600;800&display=swap">
+<style>
+  /* Один экран: 3D-мир на весь экран, поверх него HUD из тёмных «угольных» плашек с акцентом цвета углей костра. */
+  :root {
+    --panel: rgba(24, 20, 17, 0.74);
+    --panel-solid: #1c1814;
+    --line: rgba(255, 236, 214, 0.14);
+    --ink: #f4ece0;
+    --muted: #b8ab98;
+    --ember: #ff8a3d;
+    --ember-deep: #c95a1c;
+    --hp: #e0524a;
+    --food: #e8a23a;
+    --water: #4aa8e0;
+    --good: #93e08d;
+    --night: #a9b8ff;
+    --wood: #8a5a33;
+    --stone: #9a9ea3;
+    --berry: #d0263f;
+    --font-display: "Unbounded", "Rubik", system-ui, sans-serif;
+    --font-ui: "Rubik", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    background: #0d1210;
+    color: var(--ink);
+    font-family: var(--font-ui);
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #app, #touch { position: fixed; inset: 0; }
+  #app canvas { display: block; width: 100%; height: 100%; }
+  #touch { touch-action: none; }
+
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 45%, rgba(190, 20, 20, 0.75) 100%);
+  }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  .tl {
+    position: absolute;
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    left: calc(10px + env(safe-area-inset-left, 0px));
+    display: flex; flex-direction: column; gap: 6px; width: 168px;
+  }
+  .pill {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 6px 10px; display: flex; align-items: baseline; gap: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  #dayName { font-family: var(--font-display); font-weight: 800; font-size: 14px; letter-spacing: 0.02em; }
+  #dayPhase { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--food); }
+  #dayTime { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .pill.night #dayPhase { color: var(--night); }
+
+  .bars { display: flex; flex-direction: column; gap: 4px; }
+  .bar {
+    position: relative; height: 18px; border-radius: 6px; overflow: hidden;
+    background: var(--panel); border: 1px solid var(--line);
+  }
+  .bar i { position: absolute; inset: 0 auto 0 0; width: 100%; transition: width 0.2s linear; }
+  .bar.hp i { background: var(--hp); }
+  .bar.food i { background: var(--food); }
+  .bar.water i { background: var(--water); }
+  .bar span {
+    position: relative; display: flex; justify-content: space-between; padding: 0 7px;
+    font-size: 11px; line-height: 18px; font-weight: 500; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tr {
+    position: absolute;
+    top: calc(10px + env(safe-area-inset-top, 0px));
+    right: calc(10px + env(safe-area-inset-right, 0px));
+    display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+  }
+  .chip {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 4px 9px; display: flex; align-items: center; gap: 7px;
+    font-size: 13px; font-variant-numeric: tabular-nums; min-width: 64px; justify-content: space-between;
+  }
+  .chip b { font-weight: 700; }
+  .chip.sub { font-size: 11px; color: var(--muted); }
+  .chip.sub b { color: var(--ink); }
+  .ic { width: 12px; height: 12px; flex: none; display: inline-block; }
+  .ic.wood { background: var(--wood); border-radius: 2px; box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.25); }
+  .ic.stone { background: var(--stone); border-radius: 4px 6px 3px 5px; }
+  .ic.berry { background: var(--berry); border-radius: 50%; }
+
+  #toasts {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    top: calc(22% + env(safe-area-inset-top, 0px));
+    width: min(92vw, 440px);
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .toast {
+    font-weight: 700; font-size: 17px; text-align: center; text-wrap: balance;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.9);
+    transition: opacity 0.5s, transform 0.5s;
+  }
+  .toast.item { font-size: 14px; color: #cfe6ff; }
+  .toast.good { color: var(--good); }
+  .toast.warn { color: var(--food); }
+  .toast.bad { color: #ff8277; font-family: var(--font-display); font-size: 16px; }
+  .toast.out { opacity: 0; transform: translateY(-8px); }
+
+  #joy {
+    position: absolute; width: 116px; height: 116px; margin: -58px 0 0 -58px; border-radius: 50%;
+    border: 2px solid rgba(255, 236, 214, 0.28); background: rgba(24, 20, 17, 0.28);
+  }
+  #knob {
+    position: absolute; left: 50%; top: 50%; width: 50px; height: 50px; margin: -25px 0 0 -25px;
+    border-radius: 50%; background: rgba(244, 236, 224, 0.55);
+  }
+
+  #controls {
+    position: absolute;
+    right: calc(16px + env(safe-area-inset-right, 0px));
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    width: 172px; height: 160px; pointer-events: none;
+  }
+  .round {
+    position: absolute; pointer-events: auto; border-radius: 50%; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); font-family: var(--font-ui); font-weight: 700;
+    display: grid; place-items: center; cursor: pointer; touch-action: none;
+  }
+  .round:focus-visible { outline: 2px solid var(--ember); outline-offset: 3px; }
+  .round:active { transform: scale(0.94); }
+  .round.big {
+    right: 0; bottom: 0; width: 92px; height: 92px; font-size: 15px;
+    background: radial-gradient(circle at 35% 30%, var(--ember), var(--ember-deep));
+    border-color: rgba(255, 200, 150, 0.45); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  }
+  .round.big.idle { background: var(--panel); border-color: var(--line); box-shadow: none; }
+  .round.small { width: 60px; height: 60px; font-size: 12px; }
+  #btnEat { right: 104px; bottom: 6px; }
+  #btnCraft { right: 16px; bottom: 102px; }
+  #btnCraft.ready { border-color: var(--ember); color: var(--ember); }
+  .round em {
+    position: absolute; top: -4px; right: -4px; min-width: 22px; height: 22px; padding: 0 5px;
+    border-radius: 11px; background: var(--berry); font-style: normal; font-size: 12px; line-height: 22px;
+  }
+
+  #keys {
+    position: absolute;
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    font-size: 12px; color: var(--muted); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  }
+  @media (pointer: coarse) { #keys { display: none; } }
+
+  .sheet {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    width: min(calc(100vw - 24px), 420px);
+    background: var(--panel-solid); border: 1px solid var(--line); border-radius: 16px;
+    padding: 14px; display: flex; flex-direction: column; gap: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  }
+  .sheet header { display: flex; align-items: center; justify-content: space-between; }
+  .sheet h2 { margin: 0; font-family: var(--font-display); font-size: 18px; font-weight: 800; }
+  .x {
+    width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: transparent;
+    color: var(--ink); font-size: 22px; cursor: pointer;
+  }
+  .recipe {
+    display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
+    padding: 10px 12px; border-radius: 12px; background: rgba(255, 236, 214, 0.05); border: 1px solid var(--line);
+  }
+  .recipe h3 { margin: 0; font-size: 15px; }
+  .recipe p { margin: 0; font-size: 12px; color: var(--muted); grid-column: 1; }
+  .cost { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; grid-column: 1; font-variant-numeric: tabular-nums; }
+  .cost span { display: inline-flex; align-items: center; gap: 5px; }
+  .cost span.miss { color: #ff8277; }
+  .recipe button {
+    grid-column: 2; grid-row: 1 / span 3; min-width: 92px; height: 44px; border-radius: 10px; border: 0;
+    background: var(--ember); color: #2a1408; font-family: var(--font-ui); font-weight: 700; font-size: 14px; cursor: pointer;
+  }
+  .recipe button:disabled { background: rgba(255, 236, 214, 0.1); color: var(--muted); cursor: default; }
+  .recipe button:focus-visible, .cta:focus-visible, .x:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+
+  .overlay {
+    position: fixed; inset: 0; display: grid; place-items: center; padding: 24px;
+    padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px));
+    background: radial-gradient(ellipse at 50% 70%, rgba(201, 90, 28, 0.28), transparent 60%), rgba(8, 10, 14, 0.72);
+  }
+  .card { max-width: 420px; display: flex; flex-direction: column; gap: 14px; text-align: center; align-items: center; }
+  .card h1 {
+    margin: 0; font-family: var(--font-display); font-weight: 800; font-size: clamp(34px, 10vw, 54px);
+    line-height: 1; letter-spacing: -0.01em; text-wrap: balance;
+  }
+  .card h1 .lit { color: var(--ember); text-shadow: 0 0 24px rgba(255, 138, 61, 0.55); }
+  .card .lead { margin: 0; font-size: 16px; color: var(--muted); text-wrap: balance; }
+  .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; text-align: left; }
+  .rules li { display: flex; gap: 10px; align-items: baseline; }
+  .rules b { color: var(--ember); min-width: 56px; font-weight: 700; }
+  .stats { display: grid; grid-template-columns: auto auto; gap: 4px 18px; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .stats dt { color: var(--muted); text-align: right; }
+  .stats dd { margin: 0; font-weight: 700; text-align: left; }
+  .cta {
+    margin-top: 6px; height: 56px; padding: 0 40px; border-radius: 28px; border: 0; cursor: pointer;
+    background: radial-gradient(circle at 35% 30%, var(--ember), var(--ember-deep)); color: #fff4e8;
+    font-family: var(--font-display); font-weight: 800; font-size: 18px; letter-spacing: 0.02em;
+    box-shadow: 0 8px 28px rgba(201, 90, 28, 0.45);
+  }
+  @media (prefers-reduced-motion: reduce) { .toast, .bar i { transition: none; } }
+</style>
+
+<div id="app"></div>
+<div id="touch"></div>
+<div id="vignette"></div>
+
+<div id="hud">
+  <div class="tl">
+    <div id="day" class="pill"><span id="dayName">День 1</span><span id="dayPhase">день</span><span id="dayTime">2:00</span></div>
+    <div class="bars">
+      <div class="bar hp"><i id="hpFill"></i><span>Здоровье <b id="hpVal">100</b></span></div>
+      <div class="bar food"><i id="foodFill"></i><span>Голод <b id="foodVal">100</b></span></div>
+      <div class="bar water"><i id="waterFill"></i><span>Жажда <b id="waterVal">100</b></span></div>
+    </div>
+  </div>
+  <div class="tr">
+    <div class="chip"><i class="ic wood"></i><b id="invWood">0</b></div>
+    <div class="chip"><i class="ic stone"></i><b id="invStone">0</b></div>
+    <div class="chip"><i class="ic berry"></i><b id="invBerry">0</b></div>
+    <div class="chip sub">Убито <b id="kills">0</b></div>
+    <div class="chip sub">Рекорд <b id="best">0</b></div>
+  </div>
+  <div id="toasts"></div>
+  <div id="joy" hidden><div id="knob"></div></div>
+  <div id="controls">
+    <button id="btnCraft" class="round small" type="button">Крафт</button>
+    <button id="btnEat" class="round small" type="button">Есть<em id="eatCount">0</em></button>
+    <button id="btnAction" class="round big" type="button"><span id="actLabel">Удар</span></button>
+  </div>
+  <div id="keys">WASD — ходить · E или пробел — действие · F — есть · C — крафт · мышь — камера</div>
+</div>
+
+<div id="craft" class="sheet" hidden>
+  <header><h2>Крафт</h2><button class="x" id="craftClose" type="button" aria-label="Закрыть">×</button></header>
+  <div id="recipes"></div>
+</div>
+
+<div id="start" class="overlay">
+  <div class="card">
+    <h1>Долгая <span class="lit">ночь</span></h1>
+    <p class="lead">Днём собирай ресурсы и строй. Ночью приходят зомби, и с каждой ночью их больше.</p>
+    <ul class="rules">
+      <li><b>Слева</b>джойстик: веди пальцем, чтобы идти</li>
+      <li><b>Справа</b>проведи пальцем, чтобы повернуть камеру</li>
+      <li><b>Кнопка</b>рубить, добывать, пить и бить зомби</li>
+      <li><b>Еда</b>голод и жажда падают: ешь ягоды, пей у озера</li>
+    </ul>
+    <button class="cta" id="btnStart" type="button">Играть</button>
+  </div>
+</div>
+
+<div id="dead" class="overlay" hidden>
+  <div class="card">
+    <h1>Ты <span class="lit">погиб</span></h1>
+    <dl class="stats">
+      <dt>Пережито ночей</dt><dd id="deadDays">0</dd>
+      <dt>Убито зомби</dt><dd id="deadKills">0</dd>
+      <dt>Рекорд</dt><dd id="deadBest">0</dd>
+    </dl>
+    <button class="cta" id="btnRestart" type="button">Начать заново</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------------
+  // Настройки
+  // ------------------------------------------------------------------
+  const CFG = {
+    dayLen: 120, nightLen: 90,
+    maxHunger: 100, maxThirst: 100, hungerDecay: 0.45, thirstDecay: 0.6,
+    starveDmg: 3, regenThreshold: 50, regen: 0.6, berryFood: 20, drink: 35,
+    mapHalf: 110, safeR: 10,
+    lake: { x: 26, z: -22, r: 13 },
+    playerSpeed: 5.6, reach: 1.3, gatherCd: 0.42,
+    fist: { dmg: 8, cd: 0.5 }, sword: { dmg: 25, cd: 0.42 }, attackReach: 2.4,
+    campfire: { life: 240, radius: 7, heal: 4 },
+    wall: { hp: 150 },
+    zombie: { hp: 60, hpDay: 10, speed: 3.1, speedDay: 0.12, maxSpeed: 4.4, dmg: 15, range: 1.35, cd: 1,
+      base: 3, perDay: 2, max: 25, interval: 1.5, minD: 26, maxD: 38 },
+    res: {
+      tree: { item: 'wood', amount: 5, respawn: 45, count: 60, action: 'Рубить' },
+      rock: { item: 'stone', amount: 4, respawn: 60, count: 30, action: 'Добыть' },
+      bush: { item: 'berry', amount: 3, respawn: 40, count: 28, action: 'Собрать' },
+    },
+  };
+  const ITEMS = { wood: 'Древесина', stone: 'Камень', berry: 'Ягоды' };
+  const RECIPES = [
+    { id: 'sword', name: 'Меч', cost: { wood: 3, stone: 2 }, desc: 'Удар 25 вместо 8 кулаком' },
+    { id: 'campfire', name: 'Костёр', cost: { wood: 5, stone: 3 }, desc: 'Светит и лечит рядом 4 минуты' },
+    { id: 'wall', name: 'Стена', cost: { wood: 4 }, desc: 'Зомби придётся её ломать' },
+  ];
+  const BEST_KEY = 'dolgaya-noch-best';
+
+  const $ = (id) => document.getElementById(id);
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const TAU = Math.PI * 2;
+  const lerpAngle = (a, b, t) => a + ((((b - a + Math.PI) % TAU) + TAU) % TAU - Math.PI) * t;
+  const fmtTime = (s) => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+
+  function loadBest() { try { return parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0; } catch (e) { return 0; } }
+  function saveBest(v) { try { localStorage.setItem(BEST_KEY, String(v)); } catch (e) { /* хранилище недоступно */ } }
+
+  // ------------------------------------------------------------------
+  // Рендер, сцена, свет
+  // ------------------------------------------------------------------
+  const app = $('app');
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  app.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x9ccfe8);
+  scene.fog = new THREE.Fog(0xffffff, 40, 150);
+  scene.fog.color = scene.background;
+
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
+  function resize() {
+    const w = app.clientWidth || window.innerWidth, h = app.clientHeight || window.innerHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const SKY_DAY = new THREE.Color(0x9ccfe8), SKY_DUSK = new THREE.Color(0xe08a5e), SKY_NIGHT = new THREE.Color(0x090e20);
+  const SUN_COLOR = new THREE.Color(0xfff0d6), MOON_COLOR = new THREE.Color(0x7d8fc7);
+  const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x4a5a2a, 0.6);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff0d6, 1);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 120 });
+  sun.shadow.bias = -0.0008;
+  scene.add(sun, sun.target);
+  const playerLight = new THREE.PointLight(0xffd2a0, 0, 11, 2);
+  scene.add(playerLight);
+  // Фиксированный набор огней для костров: добавление новых источников света на лету вызывает подвисания.
+  const firePool = [0, 1, 2].map(() => { const l = new THREE.PointLight(0xff8a3a, 0, 13, 2); scene.add(l); return { light: l, used: false }; });
+
+  // ------------------------------------------------------------------
+  // Материалы и геометрия
+  // ------------------------------------------------------------------
+  const lam = (color, extra) => new THREE.MeshLambertMaterial(Object.assign({ color }, extra || {}));
+  const MAT = {
+    trunk: lam(0x6b4a2f),
+    leaves: [lam(0x3f7d3a), lam(0x4c8c3c), lam(0x356e34)],
+    pine: lam(0x2f6b3f),
+    rock: lam(0x8a8d90),
+    bush: lam(0x2f6e35),
+    berry: lam(0xd0263f, { emissive: 0x300008 }),
+    water: new THREE.MeshPhongMaterial({ color: 0x2d7fb8, shininess: 90, transparent: true, opacity: 0.9 }),
+    sand: lam(0xd8c48f),
+    log: lam(0x5e3c22),
+    flame: new THREE.MeshBasicMaterial({ color: 0xff8a2a }),
+    flameCore: new THREE.MeshBasicMaterial({ color: 0xffdd80 }),
+    eye: new THREE.MeshBasicMaterial({ color: 0xff3b2f }),
+    blade: new THREE.MeshPhongMaterial({ color: 0xdfe3ea, shininess: 100 }),
+    hilt: lam(0x5a3b22),
+    hpBg: new THREE.MeshBasicMaterial({ color: 0x1a0808, depthWrite: false }),
+    hpFill: new THREE.MeshBasicMaterial({ color: 0xe0524a, depthWrite: false }),
+    grass: lam(0x86b85a),
+  };
+  const geoCache = {};
+  function boxGeo(w, h, d) {
+    const key = w + ',' + h + ',' + d;
+    return geoCache[key] || (geoCache[key] = new THREE.BoxGeometry(w, h, d));
+  }
+  function mesh(geo, mat, shadow) {
+    const m = new THREE.Mesh(geo, mat);
+    if (shadow !== false) m.castShadow = true;
+    return m;
+  }
+  const GEO = {
+    trunk: new THREE.CylinderGeometry(0.22, 0.32, 1, 6).translate(0, 0.5, 0),
+    round: new THREE.IcosahedronGeometry(1.5, 0),
+    cone1: new THREE.ConeGeometry(1.5, 2.3, 7),
+    cone2: new THREE.ConeGeometry(1.05, 1.8, 7),
+    rock: new THREE.DodecahedronGeometry(1, 0),
+    bush: new THREE.IcosahedronGeometry(0.8, 0),
+    berry: new THREE.SphereGeometry(0.13, 6, 5),
+    flame: new THREE.ConeGeometry(0.42, 1.1, 6).translate(0, 0.55, 0),
+    flameCore: new THREE.ConeGeometry(0.22, 0.7, 6).translate(0, 0.35, 0),
+    stone: new THREE.DodecahedronGeometry(0.22, 0),
+    hpBg: new THREE.PlaneGeometry(0.92, 0.13),
+    hpFill: new THREE.PlaneGeometry(0.86, 0.08).translate(0.43, 0, 0),
+  };
+
+  // ------------------------------------------------------------------
+  // Мир: земля, озеро, трава, лес по краям
+  // ------------------------------------------------------------------
+  (function buildGround() {
+    const geo = new THREE.PlaneGeometry(330, 330, 80, 80);
+    geo.rotateX(-Math.PI / 2);
+    const pos = geo.attributes.position, colors = [];
+    const base = new THREE.Color(0x5d9a45), light = new THREE.Color(0x7cae50), dark = new THREE.Color(0x467a3a), c = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i);
+      const n = (Math.sin(x * 0.08) + Math.sin(z * 0.07 + 1.3) + Math.sin((x + z) * 0.13)) / 3;
+      c.copy(base).lerp(n > 0 ? light : dark, Math.abs(n));
+      if (Math.max(Math.abs(x), Math.abs(z)) > CFG.mapHalf + 4) c.multiplyScalar(0.7);
+      colors.push(c.r, c.g, c.b);
+    }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    const ground = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const L = CFG.lake;
+    const sand = new THREE.Mesh(new THREE.CircleGeometry(L.r + 2.6, 40), MAT.sand);
+    sand.rotation.x = -Math.PI / 2; sand.position.set(L.x, 0.02, L.z); sand.receiveShadow = true;
+    const water = new THREE.Mesh(new THREE.CircleGeometry(L.r, 40), MAT.water);
+    water.rotation.x = -Math.PI / 2; water.position.set(L.x, 0.05, L.z);
+    scene.add(sand, water);
+
+    // Трава
+    const tuft = new THREE.ConeGeometry(0.07, 0.38, 3).translate(0, 0.19, 0);
+    const grass = new THREE.InstancedMesh(tuft, MAT.grass, 700);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
+    for (let i = 0; i < 700; i++) {
+      let x, z;
+      do { x = rand(-CFG.mapHalf, CFG.mapHalf); z = rand(-CFG.mapHalf, CFG.mapHalf); }
+      while (Math.hypot(x - L.x, z - L.z) < L.r + 3);
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand(0, TAU));
+      const k = rand(0.7, 1.4);
+      m4.compose(p.set(x, 0, z), q, s.set(k, k, k));
+      grass.setMatrixAt(i, m4);
+    }
+    scene.add(grass);
+
+    // Тёмный лес за границей карты (декорация, одним вызовом отрисовки)
+    const spots = [];
+    for (let a = -CFG.mapHalf - 10; a <= CFG.mapHalf + 10; a += 5) {
+      for (const side of [-1, 1]) {
+        spots.push([a + rand(-1.5, 1.5), side * (CFG.mapHalf + rand(4, 10))]);
+        spots.push([side * (CFG.mapHalf + rand(4, 10)), a + rand(-1.5, 1.5)]);
+      }
+    }
+    const trunks = new THREE.InstancedMesh(GEO.trunk, MAT.trunk, spots.length);
+    const crowns = new THREE.InstancedMesh(GEO.cone1, MAT.pine, spots.length);
+    spots.forEach(([x, z], i) => {
+      const h = rand(2.2, 3.4), k = rand(1.1, 1.6);
+      m4.compose(p.set(x, 0, z), q.identity(), s.set(1, h, 1)); trunks.setMatrixAt(i, m4);
+      m4.compose(p.set(x, h + 1.1 * k, z), q, s.set(k, k * 1.3, k)); crowns.setMatrixAt(i, m4);
+    });
+    scene.add(trunks, crowns);
+  })();
+
+  // ------------------------------------------------------------------
+  // Ресурсы
+  // ------------------------------------------------------------------
+  const resources = [];
+  function freeSpot(minGap) {
+    const L = CFG.lake, half = CFG.mapHalf - 5;
+    for (let tries = 0; tries < 60; tries++) {
+      const x = rand(-half, half), z = rand(-half, half);
+      if (Math.hypot(x, z) < CFG.safeR) continue;
+      if (Math.hypot(x - L.x, z - L.z) < L.r + 5) continue;
+      if (resources.some((r) => Math.hypot(r.x - x, r.z - z) < minGap)) continue;
+      return { x, z };
+    }
+    return null;
+  }
+
+  const BUILD = {
+    tree(g) {
+      const h = rand(1.8, 2.8);
+      const trunk = mesh(GEO.trunk, MAT.trunk); trunk.scale.y = h; g.add(trunk);
+      if (Math.random() < 0.5) {
+        const c1 = mesh(GEO.cone1, MAT.pine); c1.position.y = h + 0.8; g.add(c1);
+        const c2 = mesh(GEO.cone2, MAT.pine); c2.position.y = h + 1.9; g.add(c2);
+      } else {
+        const crown = mesh(GEO.round, MAT.leaves[Math.floor(Math.random() * 3)]);
+        crown.position.y = h + 1.1; crown.scale.setScalar(rand(0.85, 1.15)); crown.rotation.set(rand(0, 3), rand(0, 3), 0);
+        g.add(crown);
+      }
+      return 0.45;
+    },
+    rock(g) {
+      const s = rand(0.7, 1.2);
+      const rock = mesh(GEO.rock, MAT.rock);
+      rock.scale.set(s, s * 0.7, s * rand(0.8, 1.2)); rock.position.y = s * 0.35; rock.rotation.set(rand(0, 1), rand(0, 3), 0);
+      g.add(rock);
+      return s * 0.9;
+    },
+    bush(g) {
+      const bush = mesh(GEO.bush, MAT.bush); bush.position.y = 0.6; bush.scale.set(1, 0.85, 1); g.add(bush);
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * TAU + rand(-0.3, 0.3);
+        const b = mesh(GEO.berry, MAT.berry, false);
+        b.position.set(Math.cos(a) * 0.68, rand(0.45, 0.95), Math.sin(a) * 0.68);
+        g.add(b);
+      }
+      return 0.7;
+    },
+  };
+
+  for (const type of Object.keys(CFG.res)) {
+    for (let i = 0; i < CFG.res[type].count; i++) {
+      const spot = freeSpot(3);
+      if (!spot) continue;
+      const g = new THREE.Group();
+      const r = BUILD[type](g);
+      g.position.set(spot.x, 0, spot.z);
+      g.rotation.y = rand(0, TAU);
+      scene.add(g);
+      resources.push({ type, cfg: CFG.res[type], g, x: spot.x, z: spot.z, r, left: CFG.res[type].amount, active: true, respawnAt: 0, shake: 0 });
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Персонажи
+  // ------------------------------------------------------------------
+  function makeHuman(mats) {
+    const g = new THREE.Group();
+    const body = mesh(boxGeo(0.62, 0.72, 0.36), mats.shirt); body.position.y = 1.26; g.add(body);
+    const head = mesh(boxGeo(0.46, 0.46, 0.46), mats.skin); head.position.y = 1.86; g.add(head);
+    const limb = (x, y, w, h, mat) => {
+      const pivot = new THREE.Group(); pivot.position.set(x, y, 0);
+      const m = mesh(boxGeo(w, h, w), mat); m.position.y = -h / 2; pivot.add(m);
+      g.add(pivot);
+      return pivot;
+    };
+    return {
+      g, head, body,
+      legL: limb(-0.16, 0.9, 0.26, 0.9, mats.pants), legR: limb(0.16, 0.9, 0.26, 0.9, mats.pants),
+      armL: limb(-0.43, 1.58, 0.22, 0.74, mats.arms || mats.skin), armR: limb(0.43, 1.58, 0.22, 0.74, mats.arms || mats.skin),
+    };
+  }
+
+  const ZOMBIE_MATS = { skin: lam(0x7fa36a), shirt: lam(0x5b4a3c), pants: lam(0x34405a) };
+
+  const hero = makeHuman({ skin: lam(0xf0c8a0), shirt: lam(0x3a78c9), pants: lam(0x2b3448), arms: lam(0x3a78c9) });
+  const hair = mesh(boxGeo(0.5, 0.14, 0.5), lam(0x4a2f1c)); hair.position.y = 0.25; hero.head.add(hair);
+  const sword = new THREE.Group();
+  for (const [geo, mat, z] of [[boxGeo(0.06, 0.12, 1.0), MAT.blade, 0.62], [boxGeo(0.32, 0.06, 0.08), MAT.hilt, 0.1], [boxGeo(0.07, 0.07, 0.26), MAT.hilt, -0.06]]) {
+    const part = mesh(geo, mat);
+    part.position.z = z;
+    sword.add(part);
+  }
+  sword.position.set(0, -0.7, 0.04);
+  sword.visible = false;
+  hero.armR.add(sword);
+  scene.add(hero.g);
+
+  function animateHuman(h, walkPhase, walkAmount, zombie) {
+    const swing = Math.sin(walkPhase) * 0.7 * walkAmount;
+    h.legL.rotation.x = swing;
+    h.legR.rotation.x = -swing;
+    if (zombie) {
+      h.armL.rotation.x = -Math.PI / 2 + Math.sin(walkPhase * 0.5) * 0.12;
+      h.armR.rotation.x = -Math.PI / 2 - Math.sin(walkPhase * 0.5) * 0.12;
+    } else {
+      h.armL.rotation.x = -swing * 0.8;
+      h.armR.rotation.x = swing * 0.8;
+    }
+    h.g.position.y = Math.abs(Math.sin(walkPhase)) * 0.06 * walkAmount;
+  }
+
+  // ------------------------------------------------------------------
+  // Состояние игры
+  // ------------------------------------------------------------------
+  const P = {};
+  const W = {};
+  const zombies = [];
+  const walls = [];
+  const campfires = [];
+  let best = loadBest();
+  let started = false;
+  let craftOpen = false;
+
+  function resetGame() {
+    for (const z of zombies) { scene.remove(z.h.g, z.bar.g); }
+    zombies.length = 0;
+    for (const w of walls) scene.remove(w.mesh);
+    walls.length = 0;
+    for (const c of campfires) removeCampfire(c, true);
+    campfires.length = 0;
+    for (const r of resources) { r.left = r.cfg.amount; r.active = true; r.g.visible = true; }
+
+    Object.assign(P, {
+      x: 0, z: 0, r: 0.4, face: 0, hp: 100, maxHp: 100,
+      hunger: CFG.maxHunger, thirst: CFG.maxThirst,
+      inv: { wood: 0, stone: 0, berry: 0 }, hasSword: false,
+      kills: 0, nights: 0, dead: false, deadT: 0,
+      walk: 0, walkAmt: 0, swingT: 0, actCd: 0, starveWarned: false,
+    });
+    Object.assign(W, { day: 1, night: false, t: CFG.dayLen * 0.08, toSpawn: 0, spawnT: 0, warned: false });
+    sword.visible = false;
+    hero.g.rotation.set(0, 0, 0);
+    hero.g.position.set(0, 0, 0);
+    camYaw = 0.6;
+  }
+
+  // ------------------------------------------------------------------
+  // Уведомления
+  // ------------------------------------------------------------------
+  const toastBox = $('toasts');
+  const recentToasts = new Map();
+  function toast(text, kind) {
+    const now = performance.now();
+    if (recentToasts.has(text) && now - recentToasts.get(text) < 1400) return;
+    recentToasts.set(text, now);
+    const el = document.createElement('div');
+    el.className = 'toast ' + (kind || '');
+    el.textContent = text;
+    toastBox.appendChild(el);
+    while (toastBox.children.length > 4) toastBox.firstChild.remove();
+    setTimeout(() => el.classList.add('out'), kind === 'item' ? 1100 : 2800);
+    setTimeout(() => el.remove(), kind === 'item' ? 1700 : 3400);
+  }
+
+  // ------------------------------------------------------------------
+  // Управление
+  // ------------------------------------------------------------------
+  let camYaw = 0.6, camDist = 14, shake = 0;
+  const keys = {};
+  const joy = { id: null, sx: 0, sy: 0, x: 0, y: 0 };
+  const look = { id: null, lastX: 0 };
+  let actionHeld = false;
+  const touchLayer = $('touch'), joyEl = $('joy'), knob = $('knob');
+
+  touchLayer.addEventListener('pointerdown', (e) => {
+    if (!started) return;
+    if (e.pointerType !== 'mouse' && e.clientX < window.innerWidth * 0.5 && joy.id === null) {
+      joy.id = e.pointerId; joy.sx = e.clientX; joy.sy = e.clientY; joy.x = 0; joy.y = 0;
+      joyEl.style.left = e.clientX + 'px'; joyEl.style.top = e.clientY + 'px';
+      knob.style.transform = '';
+      joyEl.hidden = false;
+    } else if (look.id === null) {
+      look.id = e.pointerId; look.lastX = e.clientX;
+    }
+    try { touchLayer.setPointerCapture(e.pointerId); } catch (err) { /* не критично */ }
+  });
+  touchLayer.addEventListener('pointermove', (e) => {
+    if (e.pointerId === joy.id) {
+      let dx = e.clientX - joy.sx, dy = e.clientY - joy.sy;
+      const d = Math.hypot(dx, dy), max = 50;
+      if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+      joy.x = dx / max; joy.y = dy / max;
+      knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    } else if (e.pointerId === look.id) {
+      camYaw -= (e.clientX - look.lastX) * 0.008;
+      look.lastX = e.clientX;
+    }
+  });
+  function endPointer(e) {
+    if (e.pointerId === joy.id) { joy.id = null; joy.x = 0; joy.y = 0; joyEl.hidden = true; }
+    if (e.pointerId === look.id) look.id = null;
+  }
+  touchLayer.addEventListener('pointerup', endPointer);
+  touchLayer.addEventListener('pointercancel', endPointer);
+  touchLayer.addEventListener('wheel', (e) => { camDist = clamp(camDist + Math.sign(e.deltaY) * 0.8, 8, 22); }, { passive: true });
+  document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    keys[e.code] = true;
+    if (!started) return;
+    if (e.code === 'KeyE' || e.code === 'Space') { actionHeld = true; e.preventDefault(); }
+    if (e.code === 'KeyF') eat();
+    if (e.code === 'KeyC') toggleCraft();
+    if (e.code === 'Escape' && craftOpen) toggleCraft(false);
+  });
+  window.addEventListener('keyup', (e) => {
+    keys[e.code] = false;
+    if (e.code === 'KeyE' || e.code === 'Space') actionHeld = false;
+  });
+  window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; actionHeld = false; });
+
+  const btnAction = $('btnAction');
+  btnAction.addEventListener('pointerdown', (e) => { e.preventDefault(); actionHeld = true; });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) btnAction.addEventListener(ev, () => { actionHeld = false; });
+  btnAction.addEventListener('keydown', (e) => { if (e.code === 'Enter') actionHeld = true; });
+  btnAction.addEventListener('keyup', (e) => { if (e.code === 'Enter') actionHeld = false; });
+  $('btnEat').addEventListener('click', () => eat());
+  $('btnCraft').addEventListener('click', () => toggleCraft());
+  $('craftClose').addEventListener('click', () => toggleCraft(false));
+
+  // ------------------------------------------------------------------
+  // Столкновения
+  // ------------------------------------------------------------------
+  function pushFromCircle(e, ox, oz, or) {
+    const dx = e.x - ox, dz = e.z - oz, d = Math.hypot(dx, dz), min = e.r + or;
+    if (d >= min) return false;
+    if (d < 1e-4) { e.x += min; return true; }
+    e.x = ox + dx / d * min; e.z = oz + dz / d * min;
+    return true;
+  }
+  // Стена — повёрнутый прямоугольник. Переводим точку в систему стены, выталкиваем, возвращаем обратно.
+  function pushFromWall(e, w) {
+    const c = Math.cos(w.rot), s = Math.sin(w.rot);
+    const dx = e.x - w.x, dz = e.z - w.z;
+    let lx = dx * c - dz * s, lz = dx * s + dz * c;
+    const cx = clamp(lx, -w.hw, w.hw), cz = clamp(lz, -w.hd, w.hd);
+    const ox = lx - cx, oz = lz - cz, d = Math.hypot(ox, oz);
+    if (d >= e.r) return false;
+    if (d < 1e-4) {
+      if (w.hw - Math.abs(lx) < w.hd - Math.abs(lz)) lx = Math.sign(lx || 1) * (w.hw + e.r);
+      else lz = Math.sign(lz || 1) * (w.hd + e.r);
+    } else {
+      lx = cx + ox / d * e.r; lz = cz + oz / d * e.r;
+    }
+    e.x = w.x + lx * c + lz * s;
+    e.z = w.z - lx * s + lz * c;
+    return true;
+  }
+  function collide(e) {
+    let touchedWall = null;
+    for (const r of resources) if (r.active) pushFromCircle(e, r.x, r.z, r.r);
+    for (const c of campfires) pushFromCircle(e, c.x, c.z, 0.6);
+    pushFromCircle(e, CFG.lake.x, CFG.lake.z, CFG.lake.r - 0.4);
+    for (const w of walls) if (pushFromWall(e, w)) touchedWall = w;
+    e.x = clamp(e.x, -CFG.mapHalf, CFG.mapHalf);
+    e.z = clamp(e.z, -CFG.mapHalf, CFG.mapHalf);
+    return touchedWall;
+  }
+
+  // ------------------------------------------------------------------
+  // Действия игрока
+  // ------------------------------------------------------------------
+  function faceTo(x, z) { P.face = Math.atan2(x - P.x, z - P.z); }
+  function forward() { return { x: Math.sin(P.face), z: Math.cos(P.face) }; }
+
+  function nearestZombie(maxDist) {
+    let best = null, bestD = maxDist;
+    for (const z of zombies) {
+      if (z.dead || z.burn) continue;
+      const d = Math.hypot(z.x - P.x, z.z - P.z);
+      if (d < bestD) { best = z; bestD = d; }
+    }
+    return best;
+  }
+  function nearestResource() {
+    let best = null, bestD = Infinity;
+    for (const r of resources) {
+      if (!r.active) continue;
+      const d = Math.hypot(r.x - P.x, r.z - P.z) - r.r - P.r;
+      if (d < CFG.reach && d < bestD) { best = r; bestD = d; }
+    }
+    return best;
+  }
+  const nearLake = () => Math.hypot(P.x - CFG.lake.x, P.z - CFG.lake.z) < CFG.lake.r + 2.2;
+
+  function context() {
+    const z = nearestZombie(CFG.attackReach);
+    if (z) return { kind: 'attack', target: z, label: 'Удар' };
+    const r = nearestResource();
+    if (r) return { kind: 'gather', target: r, label: r.cfg.action };
+    if (nearLake()) return { kind: 'drink', label: 'Пить' };
+    return { kind: 'swing', label: 'Удар', idle: true };
+  }
+
+  function doAction() {
+    const ctx = context();
+    P.swingT = 0.3;
+    if (ctx.kind === 'attack') {
+      const z = ctx.target, weapon = P.hasSword ? CFG.sword : CFG.fist;
+      faceTo(z.x, z.z);
+      hitZombie(z, weapon.dmg);
+      P.actCd = weapon.cd;
+    } else if (ctx.kind === 'gather') {
+      const r = ctx.target;
+      faceTo(r.x, r.z);
+      r.left--;
+      r.shake = 0.25;
+      P.inv[r.cfg.item]++;
+      toast('+1 ' + ITEMS[r.cfg.item], 'item');
+      if (r.left <= 0) { r.active = false; r.g.visible = false; r.respawnAt = W.clock + r.cfg.respawn; }
+      P.actCd = CFG.gatherCd;
+    } else if (ctx.kind === 'drink') {
+      P.swingT = 0;
+      if (P.thirst >= CFG.maxThirst - 1) toast('Ты не хочешь пить');
+      else { P.thirst = Math.min(CFG.maxThirst, P.thirst + CFG.drink); toast('Ты попил воды', 'item'); }
+      P.actCd = 0.8;
+    } else {
+      P.actCd = (P.hasSword ? CFG.sword : CFG.fist).cd;
+    }
+  }
+
+  function eat() {
+    if (!started || P.dead) return;
+    if (P.inv.berry < 1) { toast('Нет ягод. Ищи кусты с красными ягодами', 'warn'); return; }
+    if (P.hunger >= CFG.maxHunger - 1) { toast('Ты не голоден'); return; }
+    P.inv.berry--;
+    P.hunger = Math.min(CFG.maxHunger, P.hunger + CFG.berryFood);
+    toast('Ням! +' + CFG.berryFood + ' к сытости', 'item');
+  }
+
+  function hurtPlayer(dmg, from) {
+    if (P.dead) return;
+    P.hp -= dmg;
+    vignette = 0.8;
+    shake = 0.25;
+    if (from) {
+      const dx = P.x - from.x, dz = P.z - from.z, d = Math.hypot(dx, dz) || 1;
+      P.x += dx / d * 0.5; P.z += dz / d * 0.5;
+    }
+    if (P.hp <= 0) die();
+  }
+
+  function die() {
+    P.hp = 0;
+    P.dead = true;
+    P.deadT = 0;
+    actionHeld = false;
+    toggleCraft(false);
+    $('deadDays').textContent = P.nights;
+    $('deadKills').textContent = P.kills;
+    $('deadBest').textContent = best;
+    setTimeout(() => { if (P.dead) $('dead').hidden = false; }, 1400);
+  }
+
+  // ------------------------------------------------------------------
+  // Крафт
+  // ------------------------------------------------------------------
+  const canAfford = (cost) => Object.keys(cost).every((k) => P.inv[k] >= cost[k]);
+  const recipeBox = $('recipes');
+  const recipeEls = RECIPES.map((rec) => {
+    const el = document.createElement('div');
+    el.className = 'recipe';
+    const costHtml = Object.keys(rec.cost).map((k) =>
+      '<span data-item="' + k + '"><i class="ic ' + k + '"></i>' + ITEMS[k] + ' ×' + rec.cost[k] + '</span>').join('');
+    el.innerHTML = '<h3>' + rec.name + '</h3><div class="cost">' + costHtml + '</div><p>' + rec.desc + '</p>' +
+      '<button type="button" id="craft-' + rec.id + '">Создать</button>';
+    el.querySelector('button').addEventListener('click', () => craft(rec));
+    recipeBox.appendChild(el);
+    return { rec, el, btn: el.querySelector('button'), costs: el.querySelectorAll('[data-item]') };
+  });
+  recipeBox.style.cssText = 'display:flex;flex-direction:column;gap:8px';
+
+  function toggleCraft(force) {
+    craftOpen = typeof force === 'boolean' ? force : !craftOpen;
+    if (P.dead) craftOpen = false;
+    $('craft').hidden = !craftOpen;
+    actionHeld = false;
+    updateCraftSheet();
+  }
+  function updateCraftSheet() {
+    if (!craftOpen) return;
+    for (const r of recipeEls) {
+      const owned = r.rec.id === 'sword' && P.hasSword;
+      r.btn.disabled = owned || !canAfford(r.rec.cost);
+      r.btn.textContent = owned ? 'Есть' : 'Создать';
+      r.costs.forEach((s) => s.classList.toggle('miss', P.inv[s.dataset.item] < r.rec.cost[s.dataset.item]));
+    }
+  }
+
+  function craft(rec) {
+    if (P.dead) return;
+    if (rec.id === 'sword' && P.hasSword) { toast('У тебя уже есть меч', 'warn'); return; }
+    if (!canAfford(rec.cost)) { toast('Не хватает ресурсов', 'warn'); return; }
+    for (const k of Object.keys(rec.cost)) P.inv[k] -= rec.cost[k];
+    const f = forward();
+    if (rec.id === 'sword') {
+      P.hasSword = true;
+      sword.visible = true;
+    } else if (rec.id === 'campfire') {
+      addCampfire(P.x + f.x * 1.9, P.z + f.z * 1.9);
+    } else if (rec.id === 'wall') {
+      addWall(P.x + f.x * 2.1, P.z + f.z * 2.1, P.face);
+    }
+    toast('Создано: ' + rec.name, 'good');
+    toggleCraft(false);
+  }
+
+  function addWall(x, z, rot) {
+    const mat = lam(0x9a6b40);
+    const m = mesh(boxGeo(4, 2.4, 0.5), mat);
+    m.receiveShadow = true;
+    m.position.set(x, 1.2, z);
+    m.rotation.y = rot;
+    // Доски на стене
+    for (let i = -1; i <= 1; i++) {
+      const plank = mesh(boxGeo(4.05, 0.08, 0.52), MAT.log, false);
+      plank.position.y = i * 0.75;
+      m.add(plank);
+    }
+    scene.add(m);
+    walls.push({ x, z, rot, hw: 2, hd: 0.25, hp: CFG.wall.hp, mesh: m, mat, shake: 0 });
+  }
+  function damageWall(w, dmg) {
+    w.hp -= dmg;
+    w.shake = 0.2;
+    w.mat.color.setHex(0x9a6b40).lerp(new THREE.Color(0x3a2a1c), 1 - Math.max(0, w.hp) / CFG.wall.hp);
+    if (w.hp <= 0) {
+      scene.remove(w.mesh);
+      walls.splice(walls.indexOf(w), 1);
+      toast('Зомби сломали стену!', 'bad');
+    }
+  }
+
+  function addCampfire(x, z) {
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU;
+      const s = mesh(GEO.stone, MAT.rock);
+      s.position.set(Math.cos(a) * 0.62, 0.12, Math.sin(a) * 0.62);
+      g.add(s);
+    }
+    for (const a of [0.6, -0.6, 2.2]) {
+      const log = mesh(boxGeo(0.16, 0.16, 1.0), MAT.log);
+      log.position.y = 0.16; log.rotation.y = a;
+      g.add(log);
+    }
+    const flame = mesh(GEO.flame, MAT.flame, false); flame.position.y = 0.15; g.add(flame);
+    const core = mesh(GEO.flameCore, MAT.flameCore, false); core.position.y = 0.15; g.add(core);
+    scene.add(g);
+    const slot = firePool.find((s) => !s.used) || null;
+    if (slot) { slot.used = true; slot.light.position.set(x, 1.4, z); }
+    campfires.push({ x, z, g, flame, core, slot, life: CFG.campfire.life, seed: rand(0, 10) });
+  }
+  function removeCampfire(c, keepInList) {
+    scene.remove(c.g);
+    if (c.slot) { c.slot.used = false; c.slot.light.intensity = 0; }
+    if (!keepInList) campfires.splice(campfires.indexOf(c), 1);
+  }
+
+  // ------------------------------------------------------------------
+  // Зомби
+  // ------------------------------------------------------------------
+  function spawnZombie() {
+    const L = CFG.lake, Z = CFG.zombie, half = CFG.mapHalf - 2;
+    for (let tries = 0; tries < 12; tries++) {
+      const a = rand(0, TAU), d = rand(Z.minD, Z.maxD);
+      const x = clamp(P.x + Math.cos(a) * d, -half, half), z = clamp(P.z + Math.sin(a) * d, -half, half);
+      if (Math.hypot(x - L.x, z - L.z) < L.r + 2) continue;
+      if (Math.hypot(x - P.x, z - P.z) < Z.minD * 0.6) continue;
+      const h = makeHuman(ZOMBIE_MATS);
+      for (const ex of [-0.11, 0.11]) {
+        const eye = mesh(boxGeo(0.09, 0.07, 0.02), MAT.eye, false);
+        eye.position.set(ex, 0.04, 0.235);
+        h.head.add(eye);
+      }
+      h.g.position.set(x, 0, z);
+      scene.add(h.g);
+      const bar = new THREE.Group();
+      const bg = new THREE.Mesh(GEO.hpBg, MAT.hpBg);
+      const fill = new THREE.Mesh(GEO.hpFill, MAT.hpFill);
+      fill.position.set(-0.43, 0, 0.002);
+      bar.add(bg, fill);
+      bar.visible = false;
+      scene.add(bar);
+      const day = W.day;
+      const hp = Z.hp + Z.hpDay * (day - 1);
+      zombies.push({
+        h, x, z, r: 0.4, face: 0, hp, maxHp: hp,
+        speed: Math.min(Z.maxSpeed, Z.speed + Z.speedDay * (day - 1)) * rand(0.9, 1.1),
+        atkCd: 0, walk: rand(0, TAU), dead: false, deadT: 0, burn: false, burnT: 0, hitT: 0, kx: 0, kz: 0,
+        bar: { g: bar, fill },
+      });
+      return;
+    }
+  }
+
+  function hitZombie(z, dmg) {
+    z.hp -= dmg;
+    z.hitT = 0.14;
+    const dx = z.x - P.x, dz = z.z - P.z, d = Math.hypot(dx, dz) || 1;
+    z.kx = dx / d * 7; z.kz = dz / d * 7;
+    if (z.hp <= 0 && !z.dead) {
+      z.dead = true;
+      z.bar.g.visible = false;
+      P.kills++;
+    }
+  }
+
+  function burnZombie(z) {
+    if (z.dead || z.burn) return;
+    z.burn = true;
+    z.burnT = -rand(0, 1.5);
+    z.bar.g.visible = false;
+    const f = mesh(GEO.flame, MAT.flame, false);
+    f.scale.set(1.3, 1.6, 1.3);
+    f.position.y = 1.0;
+    f.visible = false;
+    z.h.g.add(f);
+    z.flameMesh = f;
+  }
+
+  function removeZombie(z) {
+    scene.remove(z.h.g, z.bar.g);
+    zombies.splice(zombies.indexOf(z), 1);
+  }
+
+  function updateZombies(dt) {
+    const Z = CFG.zombie;
+    for (let i = zombies.length - 1; i >= 0; i--) {
+      const z = zombies[i];
+      if (z.dead) {
+        z.deadT += dt;
+        z.h.g.rotation.x = -Math.min(1, z.deadT / 0.4) * Math.PI / 2;
+        z.h.g.position.y = Math.min(1, z.deadT / 0.4) * 0.25;
+        if (z.deadT > 1.6) removeZombie(z);
+        continue;
+      }
+      if (z.burn) {
+        z.burnT += dt;
+        if (z.burnT > 0) {
+          z.flameMesh.visible = true;
+          z.flameMesh.scale.y = 1.6 + Math.sin(z.burnT * 25) * 0.25;
+          const k = Math.max(0.01, 1 - Math.max(0, z.burnT - 1) / 0.8);
+          z.h.g.scale.setScalar(k);
+          if (z.burnT > 1.8) { removeZombie(z); continue; }
+        }
+      }
+
+      const dx = P.x - z.x, dz = P.z - z.z, d = Math.hypot(dx, dz) || 1;
+      z.atkCd -= dt;
+      let moving = false;
+      if (!P.dead && !z.burn) {
+        if (d > Z.range) {
+          z.x += dx / d * z.speed * dt;
+          z.z += dz / d * z.speed * dt;
+          moving = true;
+        } else if (z.atkCd <= 0) {
+          z.atkCd = Z.cd;
+          hurtPlayer(Z.dmg, z);
+        }
+        z.face = lerpAngle(z.face, Math.atan2(dx, dz), 1 - Math.exp(-dt * 8));
+      }
+      z.x += z.kx * dt; z.z += z.kz * dt;
+      const decay = Math.exp(-dt * 9);
+      z.kx *= decay; z.kz *= decay;
+
+      // Зомби не слипаются друг с другом и не проходят сквозь игрока
+      for (const o of zombies) {
+        if (o === z || o.dead) continue;
+        pushFromCircle(z, o.x, o.z, o.r * 0.9);
+      }
+      if (!P.dead) pushFromCircle(z, P.x, P.z, P.r);
+      const wall = collide(z);
+      if (wall && z.atkCd <= 0 && !z.burn && !P.dead) {
+        z.atkCd = Z.cd;
+        damageWall(wall, Z.dmg);
+      }
+
+      if (moving) z.walk += dt * z.speed * 2.1;
+      z.hitT = Math.max(0, z.hitT - dt);
+      z.h.g.position.set(z.x, 0, z.z);
+      z.h.g.rotation.y = z.face;
+      animateHuman(z.h, z.walk, moving ? 1 : 0.15, true);
+      z.h.g.position.y += z.hitT > 0 ? 0.08 : 0;
+      if (!z.burn) z.h.g.scale.setScalar(z.hitT > 0 ? 1.08 : 1);
+
+      const bar = z.bar;
+      bar.g.visible = z.hp < z.maxHp;
+      bar.g.position.set(z.x, 2.45, z.z);
+      bar.g.quaternion.copy(camera.quaternion);
+      bar.fill.scale.x = Math.max(0.001, z.hp / z.maxHp);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // День и ночь
+  // ------------------------------------------------------------------
+  function onNight() {
+    const Z = CFG.zombie;
+    W.toSpawn = Math.min(Z.base + Z.perDay * (W.day - 1), Z.max);
+    W.spawnT = 0;
+    toast('Ночь ' + W.day + '. Зомби выходят на охоту: ' + W.toSpawn, 'bad');
+  }
+  function onDawn() {
+    W.toSpawn = 0;
+    for (const z of zombies) burnZombie(z);
+    if (!P.dead) {
+      P.nights++;
+      if (P.nights > best) { best = P.nights; saveBest(best); toast('Новый рекорд: ' + best + '!', 'good'); }
+      else toast('Рассвет! Ты пережил ночей: ' + P.nights, 'good');
+    }
+  }
+  function updateClock(dt) {
+    W.clock = (W.clock || 0) + dt;
+    W.t += dt;
+    const dur = W.night ? CFG.nightLen : CFG.dayLen;
+    if (!W.night && !W.warned && dur - W.t < 15) { W.warned = true; toast('Скоро стемнеет. Готовь меч и костёр!', 'warn'); }
+    if (W.t >= dur) {
+      W.t -= dur;
+      if (W.night) { W.night = false; W.day++; W.warned = false; onDawn(); }
+      else { W.night = true; onNight(); }
+    }
+    if (W.night && W.toSpawn > 0) {
+      W.spawnT -= dt;
+      if (W.spawnT <= 0) {
+        W.spawnT = CFG.zombie.interval;
+        W.toSpawn--;
+        if (zombies.filter((z) => !z.dead).length < CFG.zombie.max) spawnZombie();
+      }
+    }
+  }
+  const hourNow = () => (W.night ? 18 : 6) + 12 * W.t / (W.night ? CFG.nightLen : CFG.dayLen);
+
+  const tmpColor = new THREE.Color();
+  function updateLighting() {
+    const h = hourNow();
+    const dl = clamp(Math.sin(((h - 6) / 12) * Math.PI) * 1.7 + 0.08, 0, 1);
+    if (dl < 0.35) scene.background.copy(SKY_NIGHT).lerp(SKY_DUSK, dl / 0.35);
+    else scene.background.copy(SKY_DUSK).lerp(SKY_DAY, (dl - 0.35) / 0.65);
+    scene.fog.near = lerp(10, 45, dl);
+    scene.fog.far = lerp(52, 150, dl);
+    hemi.intensity = 0.26 + 0.42 * dl;
+    sun.intensity = 0.16 + 0.9 * dl;
+    sun.color.copy(tmpColor.copy(MOON_COLOR).lerp(SUN_COLOR, dl));
+    const a = ((W.night ? h - 18 : h - 6) / 12) * Math.PI;
+    sun.position.set(P.x + Math.cos(a) * 30, 22 + Math.sin(a) * 24, P.z + 14);
+    sun.target.position.set(P.x, 0, P.z);
+    sun.target.updateMatrixWorld();
+    playerLight.intensity = (1 - dl) * 1.2;
+    playerLight.position.set(P.x, 2.6, P.z);
+    return dl;
+  }
+
+  // ------------------------------------------------------------------
+  // Обновление игрока и выживания
+  // ------------------------------------------------------------------
+  function updatePlayer(dt) {
+    let ix = joy.x, iy = -joy.y;
+    if (keys.KeyD || keys.ArrowRight) ix += 1;
+    if (keys.KeyA || keys.ArrowLeft) ix -= 1;
+    if (keys.KeyW || keys.ArrowUp) iy += 1;
+    if (keys.KeyS || keys.ArrowDown) iy -= 1;
+    const len = Math.hypot(ix, iy);
+    if (len > 1) { ix /= len; iy /= len; }
+    const amt = Math.min(1, len);
+
+    const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
+    const rx = Math.cos(camYaw), rz = -Math.sin(camYaw);
+    const mx = fx * iy + rx * ix, mz = fz * iy + rz * ix;
+    if (amt > 0.08) {
+      P.x += mx * CFG.playerSpeed * dt;
+      P.z += mz * CFG.playerSpeed * dt;
+      P.face = lerpAngle(P.face, Math.atan2(mx, mz), 1 - Math.exp(-dt * 12));
+      P.walk += dt * CFG.playerSpeed * 2 * amt;
+    }
+    P.walkAmt = lerp(P.walkAmt, amt > 0.08 ? amt : 0, 1 - Math.exp(-dt * 10));
+    for (const z of zombies) if (!z.dead && !z.burn) pushFromCircle(P, z.x, z.z, z.r);
+    collide(P);
+
+    P.actCd -= dt;
+    if (actionHeld && P.actCd <= 0) doAction();
+    P.swingT = Math.max(0, P.swingT - dt);
+  }
+
+  function updateSurvival(dt) {
+    P.hunger = Math.max(0, P.hunger - CFG.hungerDecay * dt);
+    P.thirst = Math.max(0, P.thirst - CFG.thirstDecay * dt);
+    if (P.hunger <= 0 || P.thirst <= 0) {
+      if (!P.starveWarned) { P.starveWarned = true; toast(P.hunger <= 0 ? 'Ты умираешь от голода!' : 'Ты умираешь от жажды!', 'bad'); }
+      P.hp -= CFG.starveDmg * dt;
+      if (P.hp <= 0) die();
+      return;
+    }
+    P.starveWarned = false;
+    let heal = 0;
+    if (P.hunger >= CFG.regenThreshold && P.thirst >= CFG.regenThreshold) heal += CFG.regen;
+    if (campfires.some((c) => Math.hypot(c.x - P.x, c.z - P.z) < CFG.campfire.radius)) heal += CFG.campfire.heal;
+    P.hp = Math.min(P.maxHp, P.hp + heal * dt);
+  }
+
+  function updateWorldObjects(dt) {
+    for (const r of resources) {
+      if (!r.active && W.clock >= r.respawnAt) {
+        // Не выращиваем ресурс прямо на игроке
+        if (Math.hypot(r.x - P.x, r.z - P.z) > r.r + 1.5) { r.active = true; r.left = r.cfg.amount; r.g.visible = true; }
+      }
+      if (r.shake > 0) {
+        r.shake = Math.max(0, r.shake - dt);
+        r.g.rotation.z = Math.sin(r.shake * 60) * 0.06 * (r.shake / 0.25);
+      }
+    }
+    for (const w of walls) {
+      if (w.shake > 0) { w.shake = Math.max(0, w.shake - dt); w.mesh.position.x = w.x + Math.sin(w.shake * 80) * 0.05; }
+    }
+    for (let i = campfires.length - 1; i >= 0; i--) {
+      const c = campfires[i];
+      c.life -= dt;
+      if (c.life <= 0) { removeCampfire(c); toast('Костёр догорел', 'warn'); continue; }
+      const t = W.clock * 9 + c.seed;
+      const fade = Math.min(1, c.life / 20);
+      const flick = 1 + Math.sin(t) * 0.1 + Math.sin(t * 2.3) * 0.07;
+      c.flame.scale.set(fade, flick * fade, fade);
+      c.core.scale.set(fade, (2 - flick) * fade, fade);
+      if (c.slot) c.slot.light.intensity = 1.6 * flick * fade;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Камера и HUD
+  // ------------------------------------------------------------------
+  const camLook = new THREE.Vector3();
+  function updateCamera(dt, snap) {
+    const horiz = camDist * 0.7, height = camDist * 0.72;
+    const tx = P.x + Math.sin(camYaw) * horiz, tz = P.z + Math.cos(camYaw) * horiz;
+    const k = snap ? 1 : 1 - Math.exp(-dt * 8);
+    camera.position.x += (tx - camera.position.x) * k;
+    camera.position.y += (height - camera.position.y) * k;
+    camera.position.z += (tz - camera.position.z) * k;
+    if (shake > 0) {
+      camera.position.x += rand(-1, 1) * shake * 0.4;
+      camera.position.y += rand(-1, 1) * shake * 0.4;
+      shake = Math.max(0, shake - dt);
+    }
+    camLook.set(P.x, 1.1, P.z);
+    camera.lookAt(camLook);
+  }
+
+  const hud = {
+    day: $('day'), dayName: $('dayName'), dayPhase: $('dayPhase'), dayTime: $('dayTime'),
+    hpFill: $('hpFill'), hpVal: $('hpVal'), foodFill: $('foodFill'), foodVal: $('foodVal'),
+    waterFill: $('waterFill'), waterVal: $('waterVal'),
+    wood: $('invWood'), stone: $('invStone'), berry: $('invBerry'), kills: $('kills'), best: $('best'),
+    actLabel: $('actLabel'), eatCount: $('eatCount'), craft: $('btnCraft'), vignette: $('vignette'),
+  };
+  let vignette = 0;
+  let hudTimer = 0;
+  function setText(el, v) { v = String(v); if (el.textContent !== v) el.textContent = v; }
+  function updateHud(dt) {
+    vignette = Math.max(0, vignette - dt * 1.6);
+    const lowHp = !P.dead && P.hp < 30 ? 0.25 + Math.sin(W.clock * 5) * 0.1 : 0;
+    hud.vignette.style.opacity = Math.max(vignette, lowHp);
+    hudTimer -= dt;
+    if (hudTimer > 0) return;
+    hudTimer = 0.1;
+    setText(hud.dayName, 'День ' + W.day);
+    setText(hud.dayPhase, W.night ? 'ночь' : 'день');
+    setText(hud.dayTime, fmtTime((W.night ? CFG.nightLen : CFG.dayLen) - W.t));
+    hud.day.classList.toggle('night', W.night);
+    hud.hpFill.style.width = (P.hp / P.maxHp * 100) + '%';
+    hud.foodFill.style.width = (P.hunger / CFG.maxHunger * 100) + '%';
+    hud.waterFill.style.width = (P.thirst / CFG.maxThirst * 100) + '%';
+    setText(hud.hpVal, Math.ceil(P.hp));
+    setText(hud.foodVal, Math.ceil(P.hunger));
+    setText(hud.waterVal, Math.ceil(P.thirst));
+    setText(hud.wood, P.inv.wood);
+    setText(hud.stone, P.inv.stone);
+    setText(hud.berry, P.inv.berry);
+    setText(hud.kills, P.kills);
+    setText(hud.best, best);
+    setText(hud.eatCount, P.inv.berry);
+    const ctx = P.dead ? { label: '—', idle: true } : context();
+    setText(hud.actLabel, ctx.label);
+    btnAction.classList.toggle('idle', !!ctx.idle);
+    hud.craft.classList.toggle('ready', RECIPES.some((r) => canAfford(r.cost) && !(r.id === 'sword' && P.hasSword)));
+    updateCraftSheet();
+  }
+
+  // ------------------------------------------------------------------
+  // Главный цикл
+  // ------------------------------------------------------------------
+  let last = performance.now();
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    const paused = !started || craftOpen;
+    if (!paused) {
+      updateClock(dt);
+      if (!P.dead) { updatePlayer(dt); updateSurvival(dt); }
+      updateZombies(dt);
+      updateWorldObjects(dt);
+    }
+
+    hero.g.position.set(P.x, 0, P.z);
+    hero.g.rotation.y = P.face;
+    if (P.dead) {
+      P.deadT += dt;
+      hero.g.rotation.x = -Math.min(1, P.deadT / 0.5) * Math.PI / 2;
+      hero.g.position.y = Math.min(1, P.deadT / 0.5) * 0.25;
+    } else {
+      hero.g.rotation.x = 0;
+      animateHuman(hero, P.walk, P.walkAmt, false);
+      if (P.swingT > 0) hero.armR.rotation.x = -Math.sin((1 - P.swingT / 0.3) * Math.PI) * 2.0;
+    }
+
+    updateLighting();
+    updateCamera(dt, false);
+    updateHud(dt);
+    renderer.render(scene, camera);
+  }
+
+  // ------------------------------------------------------------------
+  // Старт, перезапуск, сохранение при обновлении страницы
+  // ------------------------------------------------------------------
+  function begin() {
+    $('start').hidden = true;
+    started = true;
+    toast('Подойди к дереву и нажми «Рубить»', 'good');
+  }
+  $('btnStart').addEventListener('click', begin);
+  $('btnRestart').addEventListener('click', () => {
+    $('dead').hidden = true;
+    resetGame();
+    updateCamera(0, true);
+    toast('Новая игра. Удачи!', 'good');
+  });
+
+  function start(data) {
+    resetGame();
+    if (data && data.started && data.P && data.W) {
+      // Обновление страницы во время игры: возвращаем прогресс игрока.
+      Object.assign(P, data.P, { dead: false });
+      if (P.hp <= 0) P.hp = 1;
+      Object.assign(W, data.W, { toSpawn: 0 });
+      sword.visible = P.hasSword;
+      camYaw = data.camYaw || camYaw;
+      $('start').hidden = true;
+      started = true;
+    }
+    updateCamera(0, true);
+    requestAnimationFrame((t) => { last = t; frame(t); });
+  }
+
+  const hot = window.claude && window.claude.hot;
+  if (hot && hot.snapshot) {
+    hot.snapshot(() => ({
+      started,
+      camYaw,
+      P: { x: P.x, z: P.z, face: P.face, hp: P.hp, hunger: P.hunger, thirst: P.thirst,
+        inv: Object.assign({}, P.inv), hasSword: P.hasSword, kills: P.kills, nights: P.nights },
+      W: { day: W.day, night: W.night, t: W.t, warned: W.warned },
+    }));
+  }
+  if (hot && hot.ready) hot.ready(start);
+  else start((hot && hot.data) || {});
+})();
+</script>
