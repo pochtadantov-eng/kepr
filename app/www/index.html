@@ -6,13 +6,6 @@
 <title>Долгая ночь</title>
 <meta name="description" content="3D-выживание: днём собирай ресурсы, ночью отбивайся от зомби.">
 <meta name="theme-color" content="#0a0f24">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Долгая ночь">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" type="image/png" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="fonts/fonts.css">
 <style>
   /* Один экран: 3D-мир на весь экран, поверх него HUD и меню из тёмных «угольных» плашек с акцентом цвета углей костра. */
@@ -253,9 +246,6 @@
   .confirm { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; background: var(--panel-solid); border: 1px solid var(--line); }
   .confirm p { margin: 0; font-size: 14px; }
   .version { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
-  .install { text-align: left; }
-  .install b { color: var(--ember); }
-  .install ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
 
   .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 14px; text-align: left; }
   .rules li { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: baseline; }
@@ -335,7 +325,6 @@
     .menu-buttons > .row2 { display: contents; }
     .menu-buttons > .btn.primary:first-child:not([hidden]) { grid-column: 1 / -1; }
     .rules { gap: 6px; font-size: 13px; }
-    .install { display: none !important; }
     #bag { width: min(calc(100vw - 24px), 660px); }
     #slots { grid-template-columns: repeat(10, 1fr); }
   }
@@ -424,16 +413,7 @@
         <button class="btn primary" id="btnNewYes" type="button">Начать</button>
       </div>
     </div>
-    <button class="btn" id="btnInstall" type="button" hidden>Установить на телефон</button>
-    <div class="confirm install" id="installHint" hidden>
-      <p><b>Установи игру на iPhone</b></p>
-      <ol>
-        <li>Нажми кнопку «Поделиться» внизу Safari (квадрат со стрелкой вверх).</li>
-        <li>Выбери «На экран Домой».</li>
-        <li>Нажми «Добавить». Игра появится на экране с иконкой костра.</li>
-      </ol>
-    </div>
-    <span class="version">Версия 0.6</span>
+    <span class="version">Версия 0.7</span>
   </div>
 </div>
 

@@ -1,6 +1,4 @@
-# Собирает игру «Долгая ночь»:
-#  - APK для Android (публикуется в разделе Releases репозитория);
-#  - сайт для iPhone/Android на GitHub Pages (только из ветки main и если Pages включены).
+# Собирает Android-приложение «Долгая ночь» и публикует APK в разделе Releases репозитория.
 name: Сборка приложения
 
 on:
@@ -11,8 +9,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: app-${{ github.ref }}
@@ -75,9 +71,9 @@ jobs:
       - name: Опубликовать релиз
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: app-v0.6.${{ github.run_number }}
+          tag_name: app-v0.7.${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: Долгая ночь 0.6.${{ github.run_number }}
+          name: Долгая ночь 0.7.${{ github.run_number }}
           make_latest: true
           files: app/dolgaya-noch.apk
           body: |
@@ -88,18 +84,3 @@ jobs:
 
             Обновление ставится поверх старой версии, сохранения остаются.
 
-  pages:
-    name: Сайт для iPhone
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: app/www
-      - id: deploy
-        uses: actions/deploy-pages@v4

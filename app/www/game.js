@@ -2436,25 +2436,7 @@
   function openPanel(name, from) { panelReturn = from; showScreen(name); }
   document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => showScreen(panelReturn)));
 
-  const isStandalone = !!window.Capacitor || navigator.standalone === true ||
-    matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches;
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const onOwnSite = /^https?:$/.test(location.protocol) && !/claude/.test(location.hostname);
-  let installEvent = null;
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    installEvent = e;
-    if (screen === 'menu') refreshMenu();
-  });
-  $('btnInstall').addEventListener('click', () => {
-    if (!installEvent) return;
-    installEvent.prompt();
-    installEvent.userChoice.finally(() => { installEvent = null; refreshMenu(); });
-  });
-
   function refreshMenu() {
-    $('btnInstall').hidden = !installEvent || isStandalone;
-    $('installHint').hidden = !(isIOS && onOwnSite && !isStandalone);
     const saved = hasSave();
     $('btnContinue').hidden = !saved;
     $('btnNew').classList.toggle('primary', !saved);
@@ -2612,11 +2594,6 @@
     if (hot && hot.snapshot) hot.snapshot(() => ({ screen, save: screen === 'game' || screen === 'pause' ? makeSave() : null }));
     if (hot && hot.ready) hot.ready(start);
     else start((hot && hot.data) || {});
-  }
-
-  // Офлайн-режим для версии, установленной на главный экран (в приложении Android он не нужен).
-  if ('serviceWorker' in navigator && !window.Capacitor && /^https?:$/.test(location.protocol) && !/claude/.test(location.hostname)) {
-    window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => { /* без офлайн-режима */ }); });
   }
 
   // Отладка для разработки: открой игру с ?debug=1 в адресе
