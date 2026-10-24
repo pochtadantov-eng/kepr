@@ -1,0 +1,21 @@
+-- Точка входа сервера: собирает мир и запускает все системы режима "Выживание".
+local Crafting = require(script.Crafting)
+local DayNight = require(script.DayNight)
+local PlayerData = require(script.PlayerData)
+local Survival = require(script.Survival)
+local World = require(script.World)
+local Zombies = require(script.Zombies)
+
+World.generate()
+PlayerData.start()
+Survival.start()
+Zombies.start()
+Crafting.start()
+
+DayNight.onNight(Zombies.startNight)
+DayNight.onDay(function()
+	Zombies.burnAll()
+	PlayerData.rewardSurvivors()
+	PlayerData.notifyAll("Рассвет! Зомби сгорают на солнце.", "good")
+end)
+DayNight.start()
