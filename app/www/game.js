@@ -9,6 +9,7 @@
     dayLen: 150, nightLen: 100,
     maxHunger: 100, maxThirst: 100, hungerDecay: 0.14, thirstDecay: 0.2,
     starveDmg: 3, regenThreshold: 50, regen: 0.6, berryFood: 20, drink: 35,
+    flask: 4, flaskDrink: 30,
     playerSpeed: 6, swimSpeed: 0.55, jumpSpeed: 7.2, gravity: 22,
     reach: 1.4, gatherCd: 0.42, attackReach: 2.4,
     weapons: {
@@ -33,9 +34,11 @@
   };
   const ITEMS = { wood: 'Древесина', stone: 'Камень', berry: 'Ягоды', iron: 'Железо', crystal: 'Кристалл' };
   const RECIPES = [
-    { id: 'sword', name: 'Меч', cost: { wood: 3, stone: 2 }, desc: 'Удар 40 вместо 10 кулаком' },
-    { id: 'iron', name: 'Железный меч', cost: { wood: 2, iron: 4 }, desc: 'Удар 70. Железо есть в пещерах' },
-    { id: 'lantern', name: 'Фонарь', cost: { wood: 2, crystal: 2 }, desc: 'Ярко светит ночью и в пещерах' },
+    { id: 'bench', name: 'Верстак', cost: { wood: 6 }, desc: 'Рядом с ним делаются топор и мечи' },
+    { id: 'axe', name: 'Топор', cost: { wood: 3, stone: 2 }, bench: true, desc: 'Рубит деревья вдвое быстрее' },
+    { id: 'sword', name: 'Меч', cost: { wood: 3, stone: 2 }, bench: true, desc: 'Удар 40 вместо 10 кулаком' },
+    { id: 'iron', name: 'Железный меч', cost: { wood: 2, iron: 4 }, bench: true, desc: 'Удар 70. Железо есть в пещерах' },
+    { id: 'lantern', name: 'Фонарь', cost: { wood: 2, crystal: 2 }, bench: true, desc: 'Ярко светит ночью и в пещерах' },
     { id: 'campfire', name: 'Костёр', cost: { wood: 5, stone: 3 }, desc: 'Светит и лечит рядом 4 минуты' },
     { id: 'wall', name: 'Стена', cost: { wood: 4 }, desc: 'Зомби придётся её ломать' },
   ];
@@ -475,7 +478,7 @@
     if (mt > 0.54) {
       const k = Math.min((mt - 0.54) / 0.16, 1.7);
       const ridge = 1 - Math.abs(vnoise(x * 0.022, z * 0.022, 41) * 2 - 1);
-      mountain = Math.pow(k, 1.5) * 30 * (0.7 + ridge * 0.6);
+      mountain = Math.pow(k, 1.5) * 25 * (0.7 + ridge * 0.6);
     }
     let h = 3.4 + hills + mountain;
     // Озёра разной формы: впадины там, где «озёрный» шум выше порога
@@ -491,7 +494,7 @@
     if (dp < pr * 1.7) h = Math.min(h, lerp(-3, h, smoothstep(pr * 0.6, pr * 1.6, dp)));
     // Горы по краю карты
     const edge = Math.max(Math.abs(x), Math.abs(z));
-    h += smoothstep(HALF - 75, HALF - 5, edge) * 48;
+    h += smoothstep(HALF - 75, HALF - 5, edge) * 40;
     return h;
   }
 
@@ -512,7 +515,7 @@
         if (dc < 70) ang = lerpAngle(ang, Math.atan2(z, x), 0.25);
         x += Math.cos(ang) * 4.5; z += Math.sin(ang) * 4.5;
         pts.push([x, z]);
-        if (Math.abs(x) > HALF - 30 || Math.abs(z) > HALF - 30) break;
+        if (Math.abs(x) > HALF - 100 || Math.abs(z) > HALF - 100) break;
       }
       rivers.push({ pts, width });
     }
@@ -574,9 +577,9 @@
     out.lerp(TC.forest, smoothstep(0.47, 0.6, forestK(x, z)));
     out.lerp(TC.dry, smoothstep(0.6, 0.72, vnoise(x * 0.012, z * 0.012, 93)) * 0.6);
     if (h < 1.9) out.lerp(TC.sand, (1.9 - h) / 0.8 * 0.75);
-    const rockK = Math.max(smoothstep(0.55, 0.95, slope), smoothstep(18, 25, h));
+    const rockK = Math.max(smoothstep(0.8, 1.25, slope), smoothstep(36, 44, h));
     if (rockK > 0) out.lerp(tmpC.copy(TC.rock).lerp(TC.rockDark, m), rockK);
-    const snowK = smoothstep(31, 37, h + m * 4) * (1 - smoothstep(0.9, 1.4, slope));
+    const snowK = smoothstep(42, 48, h + m * 4) * (1 - smoothstep(0.9, 1.4, slope));
     if (snowK > 0) out.lerp(TC.snow, snowK);
     return out;
   }
@@ -585,7 +588,7 @@
     const h = getHeight(x, z);
     if (h < WATER + 0.05) return 'water';
     if (h < 1.6) return 'sand';
-    if (h > 20 || slopeAt(x, z) > 0.7) return 'stone';
+    if (h > 36 || slopeAt(x, z) > 0.9) return 'stone';
     return 'grass';
   }
 
@@ -743,7 +746,7 @@
   const resources = []; // ресурсы на поверхности
   const occupied = new Uint8Array((WORLD.size / 2) * (WORLD.size / 2));
   function isFree(x, z, gap) {
-    const g = Math.ceil(gap / 2), cx = Math.floor((x + HALF) / 2), cz = Math.floor((z + HALF) / 2), W2 = WORLD.size / 2;
+    const g = Math.ceil(gap / 2) - 1, cx = Math.floor((x + HALF) / 2), cz = Math.floor((z + HALF) / 2), W2 = WORLD.size / 2;
     for (let a = cx - g; a <= cx + g; a++) for (let b = cz - g; b <= cz + g; b++) {
       if (a < 0 || b < 0 || a >= W2 || b >= W2 || occupied[b * W2 + a]) return false;
     }
@@ -783,17 +786,18 @@
 
     // Деревья трёх видов
     let trees = 0;
-    for (let i = 0; i < 9000 && trees < 2300; i++) {
-      const x = (rng() * 2 - 1) * (HALF - 12), z = (rng() * 2 - 1) * (HALF - 12);
+    for (let i = 0; i < 45000 && trees < 4600; i++) {
+      const x = (rng() * 2 - 1) * (HALF - 4), z = (rng() * 2 - 1) * (HALF - 4);
       const h = getHeight(x, z), s = slopeAt(x, z);
-      if (!okGround(x, z, h, s)) continue;
+      if (h < 1.7 || s > 1.05 || h > 41 || Math.hypot(x, z) < 9 || nearCave(x, z)) continue;
       const f = forestK(x, z);
-      const p = f > 0.56 ? 0.9 : f > 0.48 ? 0.35 : 0.05;
+      const p = f > 0.56 ? 0.95 : f > 0.48 ? 0.5 : 0.22;
       if (rng() > p || !isFree(x, z, 3)) continue;
       occupy(x, z, 3);
       trees++;
       const sc = 0.8 + rng() * 0.5, ry = rng() * TAU, parts = [];
-      const kind = h > 15 ? 'pine' : f > 0.56 ? (rng() < 0.5 ? 'pine' : rng() < 0.6 ? 'oak' : 'birch') : (rng() < 0.55 ? 'oak' : rng() < 0.5 ? 'birch' : 'pine');
+      let collR = 0.45 * sc + 0.1, crown;
+      const kind = h > 15 || s > 0.55 ? 'pine' : f > 0.56 ? (rng() < 0.5 ? 'pine' : rng() < 0.6 ? 'oak' : 'birch') : (rng() < 0.55 ? 'oak' : rng() < 0.5 ? 'birch' : 'pine');
       if (kind === 'pine') {
         const th = 2.2 * sc;
         parts.push(['trunk', B.trunk.add(matrixOf(x, h - 0.2, z, 0.32 * sc, th + 0.6, 0.32 * sc, ry), col(0x6b4a2f, 0.05))]);
@@ -802,24 +806,30 @@
           const rr = (1.9 - k * 0.5) * sc, hh = 2.4 * sc;
           parts.push(['cone', B.cone.add(matrixOf(x, h + th * 0.6 + k * 1.25 * sc, z, rr, hh, rr, ry + k), green)]);
         }
+        // Нижние ветки ели у земли: обходить её приходится по краю веток
+        collR = 1.3 * sc;
+        crown = { y0: h + th * 0.6, y1: h + th * 0.6 + 4.9 * sc, r: 1.9 * sc };
       } else if (kind === 'oak') {
-        const th = 2.4 * sc;
+        const th = 3.0 * sc;
         parts.push(['trunk', B.trunk.add(matrixOf(x, h - 0.2, z, 0.36 * sc, th + 0.4, 0.36 * sc, ry), col(0x6b4a2f, 0.05))]);
+        crown = { y0: h + th - 0.4 * sc, y1: h + th + 3.4 * sc, r: 2.4 * sc };
         const autumn = rng() < 0.08;
         const leaf = col(autumn ? (rng() < 0.5 ? 0xd98a2b : 0xc9b23a) : [0x4c8c3c, 0x3f7d3a, 0x5a9a44][Math.floor(rng() * 3)], 0.06);
-        parts.push(['blob', B.blob.add(matrixOf(x, h + th + 1.1 * sc, z, 2.3 * sc, 1.9 * sc, 2.3 * sc, ry, rng(), rng()), leaf)]);
-        parts.push(['blob', B.blob.add(matrixOf(x + 0.9 * sc, h + th + 0.6 * sc, z + 0.5 * sc, 1.5 * sc, 1.3 * sc, 1.5 * sc, ry + 1, rng(), 0), leaf)]);
+        parts.push(['blob', B.blob.add(matrixOf(x, h + th + 1.5 * sc, z, 2.3 * sc, 1.9 * sc, 2.3 * sc, ry, rng(), rng()), leaf)]);
+        parts.push(['blob', B.blob.add(matrixOf(x + 0.9 * sc, h + th + 0.9 * sc, z + 0.5 * sc, 1.5 * sc, 1.3 * sc, 1.5 * sc, ry + 1, rng(), 0), leaf)]);
       } else {
-        const th = 3.6 * sc;
+        const th = 4.2 * sc;
         parts.push(['trunk', B.trunk.add(matrixOf(x, h - 0.2, z, 0.22 * sc, th + 0.4, 0.22 * sc, ry), col(0xe7e2d6, 0.03))]);
         parts.push(['blob', B.blob.add(matrixOf(x, h + th + 0.8 * sc, z, 1.5 * sc, 2.4 * sc, 1.5 * sc, ry, rng() * 0.4, 0), col(0x8fbf4a, 0.07))]);
+        crown = { y0: h + th - 1.6 * sc, y1: h + th + 3.2 * sc, r: 1.5 * sc };
+        collR = 0.3 * sc + 0.1;
       }
-      addRes('tree', x, z, 0.45 * sc + 0.1, parts);
+      addRes('tree', x, z, collR, parts).crown = crown;
     }
 
     // Камни и валуны (больше в горах)
     let rocks = 0;
-    for (let i = 0; i < 5000 && rocks < 520; i++) {
+    for (let i = 0; i < 9000 && rocks < 800; i++) {
       const x = (rng() * 2 - 1) * (HALF - 12), z = (rng() * 2 - 1) * (HALF - 12);
       const h = getHeight(x, z), s = slopeAt(x, z);
       if (h < 0.6 || s > 0.95 || Math.hypot(x, z) < 9 || nearCave(x, z)) continue;
@@ -834,12 +844,12 @@
 
     // Ягодные кусты
     let bushes = 0;
-    for (let i = 0; i < 6000 && bushes < 380; i++) {
+    for (let i = 0; i < 24000 && bushes < 420; i++) {
       const x = (rng() * 2 - 1) * (HALF - 12), z = (rng() * 2 - 1) * (HALF - 12);
       const h = getHeight(x, z), s = slopeAt(x, z);
-      if (!okGround(x, z, h, s) || h > 14) continue;
+      if (!okGround(x, z, h, s) || h > 22) continue;
       const f = forestK(x, z);
-      if (rng() > (f > 0.44 && f < 0.6 ? 0.5 : 0.12) || !isFree(x, z, 2.5)) continue;
+      if (rng() > (f > 0.44 && f < 0.6 ? 0.6 : 0.3) || !isFree(x, z, 2.5)) continue;
       occupy(x, z, 2.5);
       bushes++;
       const sc = 0.8 + rng() * 0.3, parts = [];
@@ -856,9 +866,9 @@
       const h = getHeight(x, z);
       if (type === 'tree') {
         addRes('tree', x, z, 0.5, [
-          ['trunk', B.trunk.add(matrixOf(x, h - 0.2, z, 0.36, 2.8, 0.36, 0), col(0x6b4a2f, 0.04))],
-          ['blob', B.blob.add(matrixOf(x, h + 3.5, z, 2.3, 1.9, 2.3, x, 0.3, 0.2), col(0x4c8c3c, 0.05))],
-        ]);
+          ['trunk', B.trunk.add(matrixOf(x, h - 0.2, z, 0.36, 3.4, 0.36, 0), col(0x6b4a2f, 0.04))],
+          ['blob', B.blob.add(matrixOf(x, h + 4.4, z, 2.3, 1.9, 2.3, x, 0.3, 0.2), col(0x4c8c3c, 0.05))],
+        ]).crown = { y0: h + 2.6, y1: h + 6.4, r: 2.4 };
       } else if (type === 'rock') {
         addRes('rock', x, z, 0.95, [['rock', B.rock.add(matrixOf(x, h + 0.2, z, 1.1, 0.8, 1, x), col(0x8a8d90, 0.08))]]);
       } else {
@@ -932,7 +942,7 @@
     g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
     return g;
   }
-  const GRASS = { cell: 1.05, max: 9000 };
+  const GRASS = { cell: 1.05, max: 16000, near: 26 };
   const grassMesh = new THREE.InstancedMesh(tuftGeometry(), windy(new THREE.MeshLambertMaterial({ vertexColors: true }), 0.32), GRASS.max);
   grassMesh.frustumCulled = false;
   grassMesh.setColorAt(0, new THREE.Color(1, 1, 1)); // создаёт буфер цветов на все пучки, поэтому до обнуления count
@@ -940,7 +950,7 @@
   surface.add(grassMesh);
   let grassCenter = { x: 1e9, z: 1e9 };
   const grassColor = new THREE.Color(), GRASS_FOREST = new THREE.Color(0.62, 0.78, 0.6), GRASS_SHORE = new THREE.Color(1.1, 1.05, 0.7);
-  function grassRadius() { return settings.quality === 'low' ? 0 : settings.quality === 'high' ? 44 : 30; }
+  function grassRadius() { return settings.quality === 'low' ? 45 : settings.quality === 'high' ? 120 : 85; }
   function updateGrass(force) {
     const R = grassRadius();
     if (R === 0) { grassMesh.count = 0; return; }
@@ -952,13 +962,17 @@
     for (let gx = n0x; gx <= n1x && n < GRASS.max; gx++) for (let gz = n0z; gz <= n1z && n < GRASS.max; gz++) {
       const jx = hash2(gx, gz, 301), jz = hash2(gx, gz, 302);
       const x = (gx + jx) * C, z = (gz + jz) * C;
-      const dx = x - cx, dz = z - cz;
-      if (dx * dx + dz * dz > R * R) continue;
+      const dx = x - cx, dz = z - cz, d2 = dx * dx + dz * dz;
+      if (d2 > R * R) continue;
+      // Дальше от игрока пучков меньше, но они крупнее — трава видна до самого горизонта
+      const near = settings.quality === 'low' ? GRASS.near * 0.6 : GRASS.near;
+      const far = d2 > near * near ? Math.sqrt(d2) / near : 1;
+      if (far > 1 && hash2(gx, gz, 304) > 1 / (far * far)) continue;
       const h = getHeight(x, z);
-      if (h < 1.6 || h > 22) continue;
+      if (h < 1.6 || h > 40) continue;
       const s = slopeAt(x, z);
-      if (s > 0.6) continue;
-      const k = 0.65 + hash2(gx, gz, 303) * 0.55;
+      if (s > 1.1) continue;
+      const k = (0.65 + hash2(gx, gz, 303) * 0.55) * Math.min(far, 2.4);
       grassMesh.setMatrixAt(n, matrixOf(x, h - 0.03, z, k, k * (0.75 + jx * 0.5), k, jz * TAU));
       const f = forestK(x, z);
       grassColor.setRGB(1, 1, 1).lerp(GRASS_FOREST, smoothstep(0.47, 0.6, f));
@@ -1019,19 +1033,21 @@
   function makeHuman(mats) {
     const g = new THREE.Group();
     const box = (w, h, d, mat) => { const m = new THREE.Mesh(GEO.box, mat); m.scale.set(w, h, d); m.castShadow = true; return m; };
-    const body = box(0.62, 0.72, 0.36, mats.shirt); body.position.y = 1.26; g.add(body);
-    const head = new THREE.Group(); head.position.y = 1.86; g.add(head);
+    // Корпус, голова и руки крепятся к поясу, чтобы персонаж мог наклоняться и поворачиваться
+    const upper = new THREE.Group(); upper.position.y = 0.9; g.add(upper);
+    const body = box(0.62, 0.72, 0.36, mats.shirt); body.position.y = 0.36; upper.add(body);
+    const head = new THREE.Group(); head.position.y = 0.96; upper.add(head);
     head.add(box(0.46, 0.46, 0.46, mats.skin));
-    const limb = (x, y, w, h, mat) => {
+    const limb = (parent, x, y, w, h, mat) => {
       const pivot = new THREE.Group(); pivot.position.set(x, y, 0);
       const m = box(w, h, w, mat); m.position.y = -h / 2; pivot.add(m);
-      g.add(pivot);
+      parent.add(pivot);
       return pivot;
     };
     return {
-      g, head, body,
-      legL: limb(-0.16, 0.9, 0.26, 0.9, mats.pants), legR: limb(0.16, 0.9, 0.26, 0.9, mats.pants),
-      armL: limb(-0.43, 1.58, 0.22, 0.74, mats.arms || mats.skin), armR: limb(0.43, 1.58, 0.22, 0.74, mats.arms || mats.skin),
+      g, upper, head, body,
+      legL: limb(g, -0.16, 0.9, 0.26, 0.9, mats.pants), legR: limb(g, 0.16, 0.9, 0.26, 0.9, mats.pants),
+      armL: limb(upper, -0.43, 0.68, 0.22, 0.74, mats.arms || mats.skin), armR: limb(upper, 0.43, 0.68, 0.22, 0.74, mats.arms || mats.skin),
     };
   }
   const ZOMBIE_MATS = { skin: lam(0x7fa36a), shirt: lam(0x5b4a3c), pants: lam(0x34405a) };
@@ -1039,6 +1055,10 @@
 
   const hero = makeHuman({ skin: lam(0xf0c8a0), shirt: lam(0x3a78c9), pants: lam(0x2b3448), arms: lam(0x3a78c9) });
   const hair = new THREE.Mesh(GEO.box, lam(0x4a2f1c)); hair.scale.set(0.5, 0.14, 0.5); hair.position.y = 0.25; hero.head.add(hair);
+  // Кисть правой руки: в ней меч, топор, фляга или ягода
+  const handR = new THREE.Group();
+  handR.position.set(0, -0.72, 0.02);
+  hero.armR.add(handR);
   // Меч: клинок ромбовидного сечения сужается к острию, гарда с шариками, обмотанная рукоять, навершие
   function makeSword(o) {
     const s = new THREE.Group();
@@ -1061,9 +1081,8 @@
     part(new THREE.CylinderGeometry(0.036, 0.036, 0.24, 8), o.grip, 0.0, Math.PI / 2);
     for (const z of [-0.08, -0.02, 0.04]) part(new THREE.TorusGeometry(0.038, 0.008, 4, 10), o.guard, z);
     part(new THREE.SphereGeometry(0.058, 10, 8), o.guard, -0.15);
-    s.position.set(0, -0.72, 0.02);
     s.visible = false;
-    hero.armR.add(s);
+    handR.add(s);
     return s;
   }
   const steel = new THREE.MeshPhongMaterial({ color: 0xd2d7de, shininess: 110, specular: 0xaab4c0 });
@@ -1079,6 +1098,35 @@
     guard: new THREE.MeshPhongMaterial({ color: 0xd4a52a, shininess: 90, specular: 0xffe08a }),
     grip: lam(0x241612),
   });
+  const axeMesh = new THREE.Group();
+  (function () {
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.9, 8), lam(0x7a5230));
+    handle.rotation.x = Math.PI / 2; handle.position.z = 0.33; handle.castShadow = true; axeMesh.add(handle);
+    const metal = new THREE.MeshPhongMaterial({ color: 0xb9c0c8, shininess: 90 });
+    const blade = new THREE.Mesh(GEO.box, metal); blade.scale.set(0.035, 0.28, 0.2); blade.position.set(0, -0.12, 0.7); blade.castShadow = true; axeMesh.add(blade);
+    const edge = new THREE.Mesh(GEO.box, new THREE.MeshPhongMaterial({ color: 0xe8ecf0, shininess: 120 }));
+    edge.scale.set(0.02, 0.32, 0.03); edge.position.set(0, -0.12, 0.81); axeMesh.add(edge);
+    const poll = new THREE.Mesh(GEO.box, metal); poll.scale.set(0.07, 0.09, 0.12); poll.position.set(0, 0.02, 0.7); axeMesh.add(poll);
+    axeMesh.visible = false;
+    handR.add(axeMesh);
+  })();
+  const bottleMesh = new THREE.Group();
+  (function () {
+    const glass = new THREE.MeshPhongMaterial({ color: 0x8fc7d8, shininess: 120, transparent: true, opacity: 0.75 });
+    const bodyB = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.08, 0.24, 10), glass); bodyB.position.y = -0.06; bottleMesh.add(bodyB);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.045, 0.1, 8), glass); neck.position.y = 0.11; bottleMesh.add(neck);
+    const cork = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.05, 8), lam(0x9a6b3c)); cork.position.y = 0.18; bottleMesh.add(cork);
+    bottleMesh.userData.water = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.072, 0.18, 10), new THREE.MeshBasicMaterial({ color: 0x3f8fc0, transparent: true, opacity: 0.8 }));
+    bottleMesh.userData.water.position.y = -0.08; bottleMesh.add(bottleMesh.userData.water);
+    bottleMesh.position.set(0, -0.06, 0.06);
+    bottleMesh.visible = false;
+    handR.add(bottleMesh);
+  })();
+  const berryMesh = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), MAT.berry);
+  berryMesh.position.set(0, -0.08, 0.06);
+  berryMesh.visible = false;
+  handR.add(berryMesh);
+
   const lanternMesh = new THREE.Group();
   (function () {
     const frame = new THREE.Mesh(GEO.box, MAT.hilt); frame.scale.set(0.2, 0.06, 0.2); frame.position.y = 0.14; lanternMesh.add(frame);
@@ -1103,8 +1151,132 @@
       h.armL.rotation.x = -swing * 0.8;
       h.armR.rotation.x = swing * 0.8;
     }
-    h.armR.rotation.z = 0;
+    h.armR.rotation.y = h.armR.rotation.z = h.armL.rotation.y = h.armL.rotation.z = 0;
+    h.upper.rotation.set(0, 0, 0);
+    h.upper.position.z = 0;
+    h.head.rotation.set(0, 0, 0);
     return Math.abs(Math.sin(walkPhase)) * 0.06 * walkAmount;
+  }
+
+  // ==================================================================
+  // Анимации героя: каждая поза — функция от времени t (0…1)
+  // ==================================================================
+  const seg = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
+  const smooth = (t) => t * t * (3 - 2 * t);
+  // Значение по ключевым кадрам [[t, v], ...] с плавными переходами
+  function kf(t, ks) {
+    if (t <= ks[0][0]) return ks[0][1];
+    for (let i = 1; i < ks.length; i++) {
+      if (t <= ks[i][0]) { const [t0, v0] = ks[i - 1], [t1, v1] = ks[i]; return v0 + (v1 - v0) * smooth((t - t0) / (t1 - t0)); }
+    }
+    return ks[ks.length - 1][1];
+  }
+  const ANIM = {
+    // Удар мечом сверху наискосок
+    slash1: { dur: 0.34, hit: 0.5, prop: 'weapon', pose(t, h, o) {
+      h.armR.rotation.x = kf(t, [[0, -0.4], [0.32, -3.0], [0.55, -0.35], [1, -0.3]]);
+      h.armR.rotation.z = kf(t, [[0, 0], [0.32, 0.45], [0.55, -0.6], [1, 0]]);
+      h.upper.rotation.y = kf(t, [[0, 0], [0.32, -0.45], [0.55, 0.5], [1, 0]]);
+      h.upper.rotation.x = kf(t, [[0, 0], [0.32, -0.15], [0.55, 0.32], [1, 0]]);
+      h.armL.rotation.x = kf(t, [[0, 0], [0.32, -0.7], [0.55, 0.35], [1, 0]]);
+      o.tilt = kf(t, [[0, 0.3], [0.32, 0.9], [0.55, 1.15], [1, 0.25]]);
+      o.lunge = kf(t, [[0, 0], [0.55, 0.18], [1, 0]]);
+    } },
+    // Размах мечом справа налево
+    slash2: { dur: 0.32, hit: 0.52, prop: 'weapon', pose(t, h, o) {
+      h.armR.rotation.x = kf(t, [[0, -0.5], [0.3, -1.45], [0.62, -1.35], [1, -0.3]]);
+      h.armR.rotation.z = kf(t, [[0, 0], [0.3, 1.3], [0.62, -1.0], [1, 0]]);
+      h.upper.rotation.y = kf(t, [[0, 0], [0.3, -0.7], [0.62, 0.75], [1, 0]]);
+      h.armL.rotation.z = kf(t, [[0, 0], [0.3, -0.55], [0.62, -0.2], [1, 0]]);
+      o.tilt = kf(t, [[0, 0.3], [0.3, 1.25], [0.62, 1.35], [1, 0.25]]);
+    } },
+    // Колющий выпад
+    thrust: { dur: 0.32, hit: 0.52, prop: 'weapon', pose(t, h, o) {
+      h.armR.rotation.x = kf(t, [[0, -0.6], [0.3, -1.1], [0.52, -1.62], [1, -0.4]]);
+      h.armR.rotation.z = kf(t, [[0, 0], [0.3, 0.3], [0.52, -0.1], [1, 0]]);
+      h.upper.rotation.y = kf(t, [[0, 0], [0.3, -0.5], [0.52, 0.3], [1, 0]]);
+      h.upper.rotation.x = kf(t, [[0, 0], [0.3, -0.05], [0.52, 0.35], [1, 0]]);
+      h.legL.rotation.x = kf(t, [[0, 0], [0.52, -0.65], [1, 0]]);
+      h.legR.rotation.x = kf(t, [[0, 0], [0.52, 0.45], [1, 0]]);
+      o.lunge = kf(t, [[0, 0], [0.3, -0.12], [0.52, 0.4], [1, 0]]);
+      o.tilt = kf(t, [[0, 0.4], [0.3, 1.35], [0.52, 1.57], [1, 0.3]]);
+    } },
+    // Удар кулаком
+    punch: { dur: 0.28, hit: 0.48, prop: 'none', pose(t, h, o) {
+      h.armR.rotation.x = kf(t, [[0, 0], [0.3, -0.7], [0.48, -1.65], [1, 0]]);
+      h.upper.rotation.y = kf(t, [[0, 0], [0.3, -0.4], [0.48, 0.35], [1, 0]]);
+      h.armL.rotation.x = kf(t, [[0, 0], [0.3, -1.1], [0.48, -0.6], [1, 0]]);
+      o.lunge = kf(t, [[0, 0], [0.48, 0.12], [1, 0]]);
+    } },
+    // Рубка дерева топором: замах из-за плеча и удар вбок
+    chop: { dur: 0.46, hit: 0.58, prop: 'axe', pose(t, h, o) {
+      h.armR.rotation.x = kf(t, [[0, -0.5], [0.38, -2.4], [0.58, -1.05], [1, -0.4]]);
+      h.armR.rotation.z = kf(t, [[0, 0], [0.38, 1.0], [0.58, -0.35], [1, 0]]);
+      h.upper.rotation.y = kf(t, [[0, 0], [0.38, -0.8], [0.58, 0.45], [1, 0]]);
+      h.upper.rotation.x = kf(t, [[0, 0], [0.38, -0.05], [0.58, 0.22], [1, 0]]);
+      h.armL.rotation.x = kf(t, [[0, -0.3], [0.38, -1.5], [0.58, -1.0], [1, -0.2]]);
+      o.tilt = kf(t, [[0, 0.3], [0.38, 0.6], [0.58, 1.25], [1, 0.3]]);
+    } },
+    // Удар сверху по камню
+    mine: { dur: 0.48, hit: 0.6, prop: 'axe', pose(t, h, o) {
+      h.armR.rotation.x = kf(t, [[0, -0.4], [0.4, -3.0], [0.6, -0.7], [1, -0.3]]);
+      h.armL.rotation.x = kf(t, [[0, -0.3], [0.4, -2.6], [0.6, -0.8], [1, -0.2]]);
+      h.upper.rotation.x = kf(t, [[0, 0], [0.4, -0.2], [0.6, 0.5], [1, 0]]);
+      o.tilt = kf(t, [[0, 0.3], [0.4, 0.2], [0.6, 1.1], [1, 0.3]]);
+      o.dy = kf(t, [[0, 0], [0.6, -0.1], [1, 0]]);
+    } },
+    // Сорвать ягоды: наклониться к кусту и взять рукой
+    pick: { dur: 0.6, hit: 0.55, prop: 'none', pose(t, h, o) {
+      h.upper.rotation.x = kf(t, [[0, 0], [0.4, 0.55], [0.7, 0.5], [1, 0]]);
+      h.armR.rotation.x = kf(t, [[0, 0], [0.4, -1.25], [0.55, -0.9], [0.75, -0.5], [1, 0]]);
+      h.armR.rotation.z = kf(t, [[0, 0], [0.4, -0.25], [1, 0]]);
+      h.armL.rotation.x = kf(t, [[0, 0], [0.4, -0.7], [1, 0]]);
+      o.dy = kf(t, [[0, 0], [0.4, -0.12], [1, 0]]);
+    } },
+    // Присесть у воды и набрать флягу
+    fill: { dur: 1.5, hit: 0.62, prop: 'bottle', pose(t, h, o) {
+      const down = kf(t, [[0, 0], [0.25, 1], [0.8, 1], [1, 0]]);
+      // Присед: одна нога вперёд, другая назад, корпус наклонён к воде
+      h.upper.rotation.x = 0.85 * down;
+      h.legL.rotation.x = -0.75 * down;
+      h.legR.rotation.x = 0.55 * down;
+      o.dy = -0.3 * down;
+      h.armR.rotation.x = -0.95 * down + Math.sin(seg(t, 0.35, 0.75) * Math.PI * 2) * 0.12;
+      h.armL.rotation.x = -0.4 * down;
+      h.head.rotation.x = 0.2 * down;
+      o.tilt = kf(t, [[0, 0], [0.3, 0.8], [0.6, 0.6], [0.8, 0], [1, 0]]);
+    } },
+    // Поднести флягу ко рту и выпить
+    drink: { dur: 1.5, hit: 0.7, prop: 'bottle', pose(t, h, o) {
+      const up = kf(t, [[0, 0], [0.28, 1], [0.82, 1], [1, 0]]);
+      h.armR.rotation.x = -2.1 * up;
+      h.armR.rotation.z = -0.7 * up;
+      h.head.rotation.x = -0.45 * up + Math.sin(seg(t, 0.3, 0.8) * Math.PI * 6) * 0.05 * up;
+      h.upper.rotation.x = -0.12 * up;
+      o.tilt = 1.3 * up;
+    } },
+    // Достать ягоду из кармана и съесть
+    eat: { dur: 1.4, hit: 0.72, prop: 'berry', pose(t, h) {
+      h.armR.rotation.x = kf(t, [[0, 0], [0.18, 0.4], [0.45, -2.1], [0.82, -2.05], [1, 0]]);
+      h.armR.rotation.z = kf(t, [[0, 0], [0.18, 0.3], [0.45, -0.7], [0.82, -0.7], [1, 0]]);
+      h.head.rotation.x = t > 0.45 && t < 0.85 ? Math.abs(Math.sin(t * 40)) * 0.08 : 0;
+    } },
+  };
+  function playAnim(name, onHit) {
+    P.anim = { name, t: 0, dur: ANIM[name].dur, fired: false, onHit };
+  }
+  function updateAnim(dt) {
+    const a = P.anim;
+    if (!a || a.frozen) return;
+    a.t += dt;
+    if (!a.fired && a.t >= ANIM[a.name].hit * a.dur) { a.fired = true; if (a.onHit) a.onHit(); }
+    if (a.t >= a.dur) P.anim = null;
+  }
+  const animPose = { tilt: 0, dy: 0, lunge: 0 };
+  function applyAnim() {
+    animPose.tilt = 0; animPose.dy = 0; animPose.lunge = 0;
+    if (P.anim) ANIM[P.anim.name].pose(clamp(P.anim.t / P.anim.dur, 0, 1), hero, animPose);
+    handR.rotation.x = animPose.tilt;
   }
 
   // ==================================================================
@@ -1115,6 +1287,7 @@
   const zombies = [];
   const walls = [];
   const campfires = [];
+  const benches = [];
   let screen = 'loading'; // loading | menu | game | pause | dead
   let craftOpen = false;
   let camYaw = 0.6, camPitch = 0.75, shake = 0, vignette = 0;
@@ -1126,9 +1299,10 @@
     return {
       x: 0, z: 0, y: getHeight(0, 0), vy: 0, grounded: true, swimming: false, r: 0.4, face: 0, hp: 100, maxHp: 100,
       hunger: CFG.maxHunger, thirst: CFG.maxThirst,
-      slots: new Array(CFG.bag.slots).fill(null), weapon: 'fist', lantern: false, caveCd: 0,
+      slots: new Array(CFG.bag.slots).fill(null), weapon: 'fist', lantern: false, axe: false, flask: CFG.flask, caveCd: 0,
+      anim: null, combo: 0, lastAttack: -9, jumpPrep: 0, landT: 0, benchHinted: false,
       kills: 0, nights: 0, dead: false, deadT: 0,
-      walk: 0, walkAmt: 0, stepIdx: 0, swingT: 0, actCd: 0, starveWarned: false,
+      walk: 0, walkAmt: 0, stepIdx: 0, actCd: 0, starveWarned: false,
     };
   }
 
@@ -1165,6 +1339,8 @@
     walls.length = 0;
     for (const c of campfires) removeCampfire(c, true);
     campfires.length = 0;
+    for (const b of benches) surface.remove(b.mesh);
+    benches.length = 0;
     for (const r of resources) { r.left = r.cfg.amount; setResVisible(r, true); }
     for (const d of drops) if (d.mesh.parent) d.mesh.parent.remove(d.mesh);
     drops.length = 0;
@@ -1182,9 +1358,15 @@
     updateGrass(true);
   }
 
+  // Что сейчас в руке: предмет текущей анимации, иначе оружие
   function refreshEquipment() {
-    swordMesh.visible = P.weapon === 'sword';
-    ironSwordMesh.visible = P.weapon === 'iron';
+    const prop = P.anim ? ANIM[P.anim.name].prop : 'weapon';
+    swordMesh.visible = prop === 'weapon' && P.weapon === 'sword';
+    ironSwordMesh.visible = prop === 'weapon' && P.weapon === 'iron';
+    axeMesh.visible = prop === 'axe';
+    bottleMesh.visible = prop === 'bottle';
+    bottleMesh.userData.water.visible = P.flask > 0 || (P.anim && P.anim.name === 'fill' && P.anim.fired);
+    berryMesh.visible = prop === 'berry' && P.anim && P.anim.t / P.anim.dur > 0.18 && !P.anim.fired;
     lanternMesh.visible = !!P.lantern;
   }
 
@@ -1196,11 +1378,13 @@
     return {
       v: SAVE_VERSION,
       P: { x: pos.x, z: pos.z, face: P.face, hp: P.hp, hunger: P.hunger, thirst: P.thirst,
-        slots: P.slots.map((s) => (s ? { id: s.id, n: s.n } : null)), weapon: P.weapon, lantern: P.lantern, kills: P.kills, nights: P.nights },
+        slots: P.slots.map((s) => (s ? { id: s.id, n: s.n } : null)), weapon: P.weapon, lantern: P.lantern, axe: P.axe, flask: P.flask,
+        kills: P.kills, nights: P.nights },
       W: { day: W.day, night: W.night, t: W.t, warned: W.warned },
       zombies: W.night ? zombies.filter((z) => !z.dead && !z.burn && !z.cave).length + W.toSpawn : 0,
       walls: walls.map((w) => ({ x: w.x, z: w.z, rot: w.rot, hp: w.hp })),
       fires: campfires.map((c) => ({ x: c.x, z: c.z, life: c.life })),
+      benches: benches.map((b) => ({ x: b.x, z: b.z, rot: b.rot })),
       cam: { yaw: camYaw, pitch: camPitch },
     };
   }
@@ -1210,7 +1394,8 @@
     Object.assign(P, {
       hp: sp.hp > 0 ? sp.hp : 1, hunger: sp.hunger, thirst: sp.thirst, face: sp.face || 0,
       kills: sp.kills || 0, nights: sp.nights || 0,
-      weapon: sp.weapon || (sp.hasSword ? 'sword' : 'fist'), lantern: !!sp.lantern,
+      weapon: sp.weapon || (sp.hasSword ? 'sword' : 'fist'), lantern: !!sp.lantern, axe: !!sp.axe,
+      flask: typeof sp.flask === 'number' ? sp.flask : CFG.flask,
     });
     if (Array.isArray(sp.slots)) {
       sp.slots.slice(0, CFG.bag.slots).forEach((s, i) => { if (s && ITEMS[s.id] && s.n > 0) P.slots[i] = { id: s.id, n: Math.min(s.n, CFG.bag.stack) }; });
@@ -1223,6 +1408,7 @@
       P.x = sp.x; P.z = sp.z;
       for (const w of data.walls || []) { addWall(w.x, w.z, w.rot); damageWall(walls[walls.length - 1], CFG.wall.hp - w.hp, true); }
       for (const c of data.fires || []) { addCampfire(c.x, c.z); campfires[campfires.length - 1].life = c.life; }
+      for (const b of data.benches || []) addBench(b.x, b.z, b.rot);
     }
     P.y = groundY(P.x, P.z);
     Object.assign(W, data.W || {});
@@ -1353,6 +1539,7 @@
     if (e.code === 'KeyE') actionHeld = true;
     if (e.code === 'Space') { jumpQueued = true; e.preventDefault(); }
     if (e.code === 'KeyF') eat();
+    if (e.code === 'KeyQ') drinkFlask();
     if (e.code === 'KeyC') toggleCraft();
   });
   window.addEventListener('keyup', (e) => {
@@ -1363,6 +1550,7 @@
 
   $('btnJump').addEventListener('pointerdown', (e) => { e.preventDefault(); if (playing()) jumpQueued = true; });
   $('btnEat').addEventListener('click', () => eat());
+  $('btnDrink').addEventListener('click', () => drinkFlask());
   $('btnCraft').addEventListener('click', () => toggleCraft());
   $('craftClose').addEventListener('click', () => toggleCraft(false));
   $('btnPause').addEventListener('click', () => showScreen('pause'));
@@ -1415,10 +1603,12 @@
         pushFromBox(e, cellBox);
       }
       for (const res of cave.resources) if (res.active) pushFromCircle(e, res.x, res.z, res.r);
+      for (const o of cave.solids) pushFromCircle(e, o.x, o.z, o.r);
       return null;
     }
     gridEach(e.x, e.z, 4, (o) => { if (o.isStatic || o.active) pushFromCircle(e, o.x, o.z, o.r); });
     for (const c of campfires) pushFromCircle(e, c.x, c.z, 0.6);
+    for (const b of benches) pushFromCircle(e, b.x, b.z, 0.85);
     for (const w of walls) if (pushFromBox(e, w)) touchedWall = w;
     const lim = HALF - 6;
     e.x = clamp(e.x, -lim, lim);
@@ -1500,59 +1690,90 @@
     if (z) return { kind: 'attack', target: z, label: 'Удар' };
     const r = nearestResource();
     if (r) return { kind: 'gather', target: r, label: r.cfg.action };
-    if (nearWater()) return { kind: 'drink', label: 'Пить' };
+    if (nearWater() && P.flask < CFG.flask) return { kind: 'fill', label: 'Набрать воды' };
     return { kind: 'swing', label: 'Удар', idle: true };
   }
 
   function doAction() {
+    if (P.anim) return;
     const ctx = context();
-    P.swingT = 0.3;
     if (ctx.kind === 'attack') {
-      const z = ctx.target, weapon = CFG.weapons[P.weapon];
+      const z = ctx.target, weapon = CFG.weapons[P.weapon], armed = P.weapon !== 'fist';
       faceTo(z.x, z.z);
-      const f = forward();
-      // Взмах задевает всех зомби перед игроком
-      for (const o of zombies.slice()) {
-        if (o.dead || o.burn || !!o.cave !== !!inCave) continue;
-        const dx = o.x - P.x, dz = o.z - P.z, d = Math.hypot(dx, dz) || 1;
-        if (o === z || (d < CFG.attackReach + 0.4 && (dx * f.x + dz * f.z) / d > 0.3)) hitZombie(o, weapon.dmg);
-      }
-      if (P.weapon !== 'fist') Sound.play('swing');
+      // Серия ударов: сверху, вбок, выпад — если бить без пауз
+      if (W.clock - P.lastAttack > 0.9) P.combo = 0;
+      const name = armed ? ['slash1', 'slash2', 'thrust'][P.combo % 3] : 'punch';
+      P.combo++;
+      P.lastAttack = W.clock;
+      if (armed) Sound.play('swing');
+      playAnim(name, () => {
+        const f = forward();
+        for (const o of zombies.slice()) {
+          if (o.dead || o.burn || !!o.cave !== !!inCave) continue;
+          const dx = o.x - P.x, dz = o.z - P.z, d = Math.hypot(dx, dz) || 1;
+          if ((o === z && d < CFG.attackReach + 0.8) || (d < CFG.attackReach + 0.4 && (dx * f.x + dz * f.z) / d > 0.3)) hitZombie(o, weapon.dmg);
+        }
+      });
       P.actCd = weapon.cd;
     } else if (ctx.kind === 'gather') {
       const r = ctx.target;
       faceTo(r.x, r.z);
       if (invSpace(r.cfg.item) < 1) { toast('Рюкзак полон. Выброси что-нибудь', 'warn'); P.actCd = 0.6; return; }
-      r.left--;
-      r.hitT = 0.18;
-      shaking.add(r);
-      invAdd(r.cfg.item, 1);
-      Sound.play(r.cfg.sound);
-      toast('+1 ' + ITEMS[r.cfg.item], 'item');
-      if (r.left <= 0) { setResVisible(r, false); shaking.delete(r); r.respawnAt = W.clock + r.cfg.respawn; }
-      P.actCd = CFG.gatherCd;
-    } else if (ctx.kind === 'drink') {
-      P.swingT = 0;
-      if (P.thirst >= CFG.maxThirst - 1) toast('Ты не хочешь пить');
-      else { P.thirst = Math.min(CFG.maxThirst, P.thirst + CFG.drink); Sound.play('drink'); toast('Ты попил воды', 'item'); }
-      P.actCd = 0.8;
+      const isTree = r.type === 'tree', bare = isTree && !P.axe;
+      const name = r.type === 'bush' ? 'pick' : isTree ? (P.axe ? 'chop' : 'punch') : (P.axe ? 'mine' : 'punch');
+      if (bare && !P.axeHinted) { P.axeHinted = true; toast('Руками рубить долго. Сделай топор на верстаке', 'warn'); }
+      playAnim(name, () => {
+        if (!r.active || r.left <= 0) return;
+        r.left--;
+        r.hitT = 0.18;
+        shaking.add(r);
+        invAdd(r.cfg.item, 1);
+        Sound.play(r.cfg.sound);
+        toast('+1 ' + ITEMS[r.cfg.item], 'item');
+        if (r.left <= 0) { setResVisible(r, false); shaking.delete(r); r.respawnAt = W.clock + r.cfg.respawn; }
+        if (r.cfg.item === 'wood' && !benches.length && !P.benchHinted && invCount('wood') >= 6) {
+          P.benchHinted = true;
+          toast('Хватает дерева на верстак. Открой «Крафт»', 'good');
+        }
+      });
+      P.actCd = bare ? 1.0 : ANIM[name].dur + 0.06;
+    } else if (ctx.kind === 'fill') {
+      playAnim('fill', () => { P.flask = CFG.flask; Sound.play('drink'); toast('Фляга полна. Нажми «Пить»', 'item'); });
+      P.actCd = ANIM.fill.dur + 0.1;
     } else {
-      Sound.play('swing');
+      const armed = P.weapon !== 'fist';
+      if (armed) Sound.play('swing');
+      playAnim(armed ? 'slash1' : 'punch');
       P.actCd = CFG.weapons[P.weapon].cd;
     }
   }
 
   function eat() {
-    if (playing()) eatBerry();
+    if (playing()) eatBerry(false);
   }
-  function eatBerry() {
-    if (P.dead) return;
+  // Есть с анимацией: достать ягоду из кармана и поднести ко рту. Из рюкзака — сразу.
+  function eatBerry(instant) {
+    if (P.dead || (!instant && P.anim)) return;
     if (invCount('berry') < 1) { toast('Нет ягод. Ищи кусты с красными ягодами', 'warn'); return; }
     if (P.hunger >= CFG.maxHunger - 1) { toast('Ты не голоден'); return; }
-    invRemove('berry', 1);
-    P.hunger = Math.min(CFG.maxHunger, P.hunger + CFG.berryFood);
-    Sound.play('eat');
-    toast('Ням! +' + CFG.berryFood + ' к сытости', 'item');
+    const finish = () => {
+      if (invRemove('berry', 1) < 1) return;
+      P.hunger = Math.min(CFG.maxHunger, P.hunger + CFG.berryFood);
+      Sound.play('eat');
+      toast('Ням! +' + CFG.berryFood + ' к сытости', 'item');
+    };
+    if (instant) finish(); else playAnim('eat', finish);
+  }
+  function drinkFlask() {
+    if (!playing() || P.dead || P.anim) return;
+    if (P.flask <= 0) { toast(nearWater() ? 'Фляга пуста. Нажми на экран, чтобы набрать воды' : 'Фляга пуста. Набери воды в озере или реке', 'warn'); return; }
+    if (P.thirst >= CFG.maxThirst - 1) { toast('Ты не хочешь пить'); return; }
+    playAnim('drink', () => {
+      P.flask--;
+      P.thirst = Math.min(CFG.maxThirst, P.thirst + CFG.flaskDrink);
+      Sound.play('drink');
+      toast('Ты попил воды. Во фляге: ' + P.flask, 'item');
+    });
   }
 
   function hurtPlayer(dmg, from) {
@@ -1570,6 +1791,7 @@
 
   function die() {
     P.hp = 0;
+    P.anim = null;
     P.dead = true;
     P.deadT = 0;
     releaseAllInput();
@@ -1587,7 +1809,10 @@
   // Крафт
   // ==================================================================
   const canAfford = (cost) => Object.keys(cost).every((k) => invCount(k) >= cost[k]);
-  const owned = (id) => (id === 'sword' && (P.weapon === 'sword' || P.weapon === 'iron')) || (id === 'iron' && P.weapon === 'iron') || (id === 'lantern' && P.lantern);
+  const owned = (id) => (id === 'sword' && (P.weapon === 'sword' || P.weapon === 'iron')) || (id === 'iron' && P.weapon === 'iron') ||
+    (id === 'lantern' && P.lantern) || (id === 'axe' && P.axe);
+  const nearBench = () => !inCave && benches.some((b) => Math.hypot(b.x - P.x, b.z - P.z) < 4.5);
+  const canCraftHere = (rec) => !rec.bench || nearBench();
   const recipeBox = $('recipes');
   const recipeEls = RECIPES.map((rec) => {
     const el = document.createElement('div');
@@ -1612,9 +1837,9 @@
   function updateCraftSheet() {
     if (!craftOpen) return;
     for (const r of recipeEls) {
-      const has = owned(r.rec.id);
-      r.btn.disabled = has || !canAfford(r.rec.cost);
-      r.btn.textContent = has ? 'Есть' : 'Создать';
+      const has = owned(r.rec.id), here = canCraftHere(r.rec);
+      r.btn.disabled = has || !here || !canAfford(r.rec.cost);
+      r.btn.textContent = has ? 'Есть' : here ? 'Создать' : 'Нужен верстак';
       r.costs.forEach((s) => s.classList.toggle('miss', invCount(s.dataset.item) < r.rec.cost[s.dataset.item]));
     }
   }
@@ -1622,13 +1847,16 @@
   function craft(rec) {
     if (P.dead) return;
     if (owned(rec.id)) { toast('У тебя это уже есть', 'warn'); return; }
-    if ((rec.id === 'campfire' || rec.id === 'wall') && inCave) { toast('В пещере строить нельзя', 'warn'); return; }
+    if ((rec.id === 'campfire' || rec.id === 'wall' || rec.id === 'bench') && inCave) { toast('В пещере строить нельзя', 'warn'); return; }
+    if (!canCraftHere(rec)) { toast('Подойди к верстаку', 'warn'); return; }
     if (!canAfford(rec.cost)) { toast('Не хватает ресурсов', 'warn'); return; }
     for (const k of Object.keys(rec.cost)) invRemove(k, rec.cost[k]);
     const f = forward();
     if (rec.id === 'sword') P.weapon = 'sword';
     else if (rec.id === 'iron') P.weapon = 'iron';
     else if (rec.id === 'lantern') P.lantern = true;
+    else if (rec.id === 'axe') P.axe = true;
+    else if (rec.id === 'bench') addBench(P.x + f.x * 2.2, P.z + f.z * 2.2, P.face);
     else if (rec.id === 'campfire') addCampfire(P.x + f.x * 1.9, P.z + f.z * 1.9);
     else if (rec.id === 'wall') addWall(P.x + f.x * 2.1, P.z + f.z * 2.1, P.face);
     refreshEquipment();
@@ -1701,7 +1929,7 @@
   $('drop1').addEventListener('click', () => dropFromSlot(1));
   $('dropHalf').addEventListener('click', () => { const s = P.slots[selectedSlot]; if (s) dropFromSlot(Math.floor(s.n / 2)); });
   $('dropAll').addEventListener('click', () => { const s = P.slots[selectedSlot]; if (s) dropFromSlot(s.n); });
-  $('slotEat').addEventListener('click', () => { eatBerry(); renderBag(); });
+  $('slotEat').addEventListener('click', () => { eatBerry(true); renderBag(); });
 
   const drops = [];
   const dropMats = {};
@@ -1757,6 +1985,28 @@
       walls.splice(walls.indexOf(w), 1);
       if (!silent) toast('Зомби сломали стену!', 'bad');
     }
+  }
+
+  // Верстак: стол с пилой и молотком
+  function addBench(x, z, rot) {
+    const g = new THREE.Group();
+    g.position.set(x, getHeight(x, z), z);
+    g.rotation.y = rot;
+    const plank = lam(0xa0703f), dark = lam(0x5e3c22), metal = new THREE.MeshPhongMaterial({ color: 0xaab2ba, shininess: 80 });
+    const part = (mat, sx, sy, sz, px, py, pz, ry) => {
+      const m = new THREE.Mesh(GEO.box, mat);
+      m.scale.set(sx, sy, sz); m.position.set(px, py, pz); m.rotation.y = ry || 0;
+      m.castShadow = true; m.receiveShadow = true;
+      g.add(m);
+    };
+    part(plank, 1.6, 0.12, 0.85, 0, 0.84, 0);
+    for (const [lx, lz] of [[-0.7, -0.33], [0.7, -0.33], [-0.7, 0.33], [0.7, 0.33]]) part(dark, 0.1, 0.8, 0.1, lx, 0.4, lz);
+    part(dark, 1.4, 0.06, 0.7, 0, 0.25, 0);
+    part(metal, 0.5, 0.02, 0.14, 0.3, 0.91, 0.12, 0.3);
+    part(dark, 0.06, 0.05, 0.34, -0.42, 0.93, -0.1, -0.5);
+    part(metal, 0.16, 0.08, 0.08, -0.5, 0.94, 0.04, -0.5);
+    surface.add(g);
+    benches.push({ x, z, rot, mesh: g });
   }
 
   function addCampfire(x, z) {
@@ -1967,7 +2217,7 @@
     const rng = mulberry32(9000 + index * 101);
     const gen = generateCaveGrid(rng);
     const n = CAVE.n, C = CAVE.cell, Y = CAVE.y;
-    const data = { index, grid: gen.grid, resources: [], exit: { x: caveCenter(gen.entry.c), z: caveCenter(gen.entry.r) }, flow: null, flowCell: -1, map: null };
+    const data = { index, grid: gen.grid, resources: [], solids: [], exit: { x: caveCenter(gen.entry.c), z: caveCenter(gen.entry.r) }, flow: null, flowCell: -1, map: null };
 
     const isWall = (r, c) => c < 0 || r < 0 || c >= n || r >= n || gen.grid[r * n + c] === 1;
     const shade = (hex) => { const c = new THREE.Color(hex); c.offsetHSL(0, 0, (rng() - 0.5) * 0.12); return c; };
@@ -1988,11 +2238,12 @@
     const floorCol = new THREE.Color(0x8c8278), wallCol = new THREE.Color(0xb0a596), topCol = new THREE.Color(0x6a6058), wetCol = new THREE.Color(0x5c544e), col = new THREE.Color();
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), z = pos.getZ(i);
-      const w = clamp(wallness(x, z) + (fbm(x * 0.35, z * 0.35, seed, 3) - 0.5) * 0.45, 0, 1);
-      const k = smoothstep(0.3, 0.7, w);
-      // Выступы и ниши: точки стены сдвигаются вбок
+      // Скала начинается чуть дальше границы клетки, поэтому игрок не может зайти в неё
+      const w = clamp(wallness(x, z) + (fbm(x * 0.35, z * 0.35, seed, 3) - 0.5) * 0.25, 0, 1);
+      const k = smoothstep(0.52, 0.82, w);
+      // Выступы и ниши: точки стены немного сдвигаются вбок
       const side = k * (1 - k) * 4;
-      const ox = (vnoise(x * 0.5, z * 0.5, seed + 5) - 0.5) * 1.6 * side, oz = (vnoise(x * 0.5 + 9, z * 0.5, seed + 6) - 0.5) * 1.6 * side;
+      const ox = (vnoise(x * 0.5, z * 0.5, seed + 5) - 0.5) * 0.7 * side, oz = (vnoise(x * 0.5 + 9, z * 0.5, seed + 6) - 0.5) * 0.7 * side;
       const floorBump = (fbm(x * 0.4, z * 0.4, seed + 1, 3) - 0.5) * 0.7 + Math.max(0, vnoise(x * 1.3, z * 1.3, seed + 8) - 0.8) * 1.4;
       const wallH = CAVE.ceil + 0.8 + (fbm(x * 0.25, z * 0.25, seed + 2, 3) - 0.3) * 2.5;
       pos.setXYZ(i, x + ox, k * wallH + floorBump * (1 - k), z + oz);
@@ -2038,7 +2289,11 @@
       for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) adj += isWall(r + dr, c + dc) ? 1 : 0;
       const nearEntry = Math.hypot(c - gen.entry.c, r - gen.entry.r) <= 5;
       if (adj > 0 && !nearEntry) edgeFloors.push({ r, c, x, z });
-      if (adj > 0 && rng() < 0.16) spikeBatch.add(matrixOf(x + (rng() - 0.5) * 1.4, Y - 0.2, z + (rng() - 0.5) * 1.4, 0.22 + rng() * 0.2, 0.9 + rng() * 1.8, 0.22 + rng() * 0.2, rng() * 3), tone());
+      if (adj > 0 && !nearEntry && rng() < 0.16) {
+        const sx = x + (rng() - 0.5) * 1.4, sz = z + (rng() - 0.5) * 1.4, sr = 0.22 + rng() * 0.2;
+        spikeBatch.add(matrixOf(sx, Y - 0.2, sz, sr, 0.9 + rng() * 1.8, sr, rng() * 3), tone());
+        data.solids.push({ x: sx, z: sz, r: sr + 0.05 });
+      }
       if (rng() < 0.09) spikeBatch.add(matrixOf(x + (rng() - 0.5) * 1.8, Y + CAVE.ceil - 0.6, z + (rng() - 0.5) * 1.8, 0.2 + rng() * 0.25, 1 + rng() * 2.2, 0.2 + rng() * 0.25, rng() * 3, Math.PI), tone());
       const pebbles = adj > 0 ? 3 : rng() < 0.3 ? 1 : 0;
       for (let k = 0; k < pebbles; k++) {
@@ -2439,8 +2694,8 @@
     blend3(sky.material.uniforms.uHorizon.value, SKY.horNight, SKY.horDusk, SKY.horDay, dl);
     scene.background.copy(sky.material.uniforms.uHorizon.value);
     blend3(MAT.cloud.color, SKY.cloudNight, SKY.cloudDusk, SKY.cloudDay, dl);
-    scene.fog.near = lerp(14, 70, dl);
-    scene.fog.far = lerp(70, 280, dl);
+    scene.fog.near = lerp(14, 120, dl);
+    scene.fog.far = lerp(90, 560, dl);
     hemi.color.setHex(0xcfe8ff); hemi.groundColor.setHex(0x4a5a2a);
     hemi.intensity = 0.3 + 0.5 * dl;
     sun.intensity = 0.14 + 0.85 * dl;
@@ -2494,7 +2749,8 @@
     const rx = Math.cos(camYaw), rz = -Math.sin(camYaw);
     const mx = fx * iy + rx * ix, mz = fz * iy + rz * ix;
     if (amt > 0.08) {
-      const speed = CFG.playerSpeed * (P.swimming ? CFG.swimSpeed : shallow ? 0.8 : 1);
+      const busy = P.anim && /^(eat|drink|fill|pick)$/.test(P.anim.name);
+      const speed = CFG.playerSpeed * (P.swimming ? CFG.swimSpeed : shallow ? 0.8 : 1) * (busy ? 0.35 : 1);
       tryMove(P, mx * speed * dt, mz * speed * dt, P.y);
       P.face = lerpAngle(P.face, Math.atan2(mx, mz), 1 - Math.exp(-dt * 12));
       P.walk += dt * speed * 2 * amt * (P.swimming ? 0.6 : 1);
@@ -2514,9 +2770,14 @@
     const g = groundY(P.x, P.z);
     if (jumpQueued) {
       jumpQueued = false;
-      if (P.grounded && !P.swimming) { P.vy = CFG.jumpSpeed; P.grounded = false; Sound.play('jump'); }
+      if (P.grounded && !P.swimming && P.jumpPrep <= 0) P.jumpPrep = 0.09; // короткое приседание перед прыжком
       else if (P.swimming) { P.vy = 3.2; Sound.play('step', 'swim'); }
     }
+    if (P.jumpPrep > 0) {
+      P.jumpPrep -= dt;
+      if (P.jumpPrep <= 0 && P.grounded) { P.vy = CFG.jumpSpeed; P.grounded = false; Sound.play('jump'); }
+    }
+    P.landT = Math.max(0, P.landT - dt);
     if (P.swimming && P.vy <= 0) {
       P.y = lerp(P.y, WATER - SWIM_DEPTH + Math.sin(W.clock * 2.5) * 0.05, 1 - Math.exp(-dt * 6));
       P.vy = 0;
@@ -2527,6 +2788,7 @@
       const floor = P.swimming ? WATER - SWIM_DEPTH : g;
       if (P.y <= floor) {
         if (!P.grounded && P.vy < -4) Sound.play('land', surfaceAt(P.x, P.z));
+        if (!P.grounded && P.vy < -3) P.landT = 0.24;
         P.y = floor; P.vy = 0; P.grounded = true;
       } else if (P.y - floor > 0.25 || P.vy > 0) {
         P.grounded = false;
@@ -2542,11 +2804,11 @@
       if (P.walkAmt > 0.25 && (P.grounded || P.swimming)) Sound.play('step', P.swimming ? 'swim' : surfaceAt(P.x, P.z), 0.6 + P.walkAmt * 0.5);
     }
 
+    updateAnim(dt);
     P.actCd -= dt;
     const tapped = tapAt > 0 && performance.now() - tapAt < 450;
     if (tapAt > 0 && !tapped) tapAt = -1;
     if ((actionHeld || tapped) && P.actCd <= 0) { tapAt = -1; doAction(); }
-    P.swingT = Math.max(0, P.swingT - dt);
     if (!inCave) updateGrass(false);
   }
 
@@ -2600,6 +2862,17 @@
   // Камера: крутится по кругу и вверх-вниз вокруг игрока
   // ==================================================================
   const camLook = new THREE.Vector3();
+  function cameraBlocked(x, y, z) {
+    if (y < getHeight(x, z) + 0.35) return true;
+    let hit = false;
+    gridEach(x, z, 3, (o) => {
+      if (hit || !o.active || !o.crown) return;
+      const d = Math.hypot(o.x - x, o.z - z);
+      if (y > o.crown.y0 && y < o.crown.y1 && d < o.crown.r * 0.85) hit = true;
+      else if (y <= o.crown.y0 && d < 0.6) hit = true;
+    });
+    return hit;
+  }
   function updateCamera(dt, snap, orbit) {
     const dist = orbit ? 24 : inCave ? Math.min(settings.dist, 8) : settings.dist;
     const pitch = orbit ? 0.3 : inCave ? Math.min(camPitch, 0.7) : camPitch;
@@ -2607,8 +2880,19 @@
     const horiz = Math.cos(pitch) * dist;
     let tx = P.x + Math.sin(camYaw) * horiz, tz = P.z + Math.cos(camYaw) * horiz;
     let ty = lookY + Math.sin(pitch) * dist;
-    if (!inCave) ty = Math.max(ty, getHeight(tx, tz) + 0.7, WATER + 0.4);
-    else if (cave) {
+    if (!inCave) {
+      ty = Math.max(ty, getHeight(tx, tz) + 0.7, WATER + 0.4);
+      // Если между игроком и камерой дерево или склон — камера подъезжает ближе
+      const steps = 22;
+      for (let i = 2; i <= steps; i++) {
+        const t = i / steps, px = P.x + (tx - P.x) * t, pz = P.z + (tz - P.z) * t, py = lookY + (ty - lookY) * t;
+        if (cameraBlocked(px, py, pz)) {
+          const t2 = Math.max(0.12, (i - 1.5) / steps);
+          tx = P.x + (tx - P.x) * t2; tz = P.z + (tz - P.z) * t2; ty = lookY + (ty - lookY) * t2;
+          break;
+        }
+      }
+    } else if (cave) {
       // Камера не залезает в скалу и не поднимается выше потолка
       ty = clamp(ty, CAVE.y + 0.6, CAVE.y + CAVE.ceil - 0.8);
       const steps = 28;
@@ -2683,6 +2967,10 @@
       const cx = ((P.x + HALF) / WORLD.size) * Sb, cz = ((P.z + HALF) / WORLD.size) * Sb;
       mmCtx.imageSmoothingEnabled = true;
       mmCtx.drawImage(mapBase, cx - src / 2, cz - src / 2, src, src, 0, 0, S, S);
+      for (const b of benches) {
+        const bx = S / 2 + ((b.x - P.x) / view) * S, bz = S / 2 + ((b.z - P.z) / view) * S;
+        mmCtx.fillStyle = '#a0703f'; mmCtx.fillRect(bx - 4, bz - 4, 8, 8);
+      }
       for (const c of campfires) {
         const fx = S / 2 + ((c.x - P.x) / view) * S, fz = S / 2 + ((c.z - P.z) / view) * S;
         mmCtx.fillStyle = '#ffb347'; mmCtx.beginPath(); mmCtx.arc(fx, fz, 4, 0, TAU); mmCtx.fill();
@@ -2710,7 +2998,7 @@
     hpFill: $('hpFill'), hpVal: $('hpVal'), foodFill: $('foodFill'), foodVal: $('foodVal'),
     waterFill: $('waterFill'), waterVal: $('waterVal'),
     kills: $('kills'), bagCount: $('bagCount'),
-    actLabel: $('actLabel'), actHint: $('actHint'), eatCount: $('eatCount'), craft: $('btnCraft'), vignette: $('vignette'), mapLabel: $('mapLabel'),
+    actLabel: $('actLabel'), actHint: $('actHint'), flaskCount: $('flaskCount'), eatCount: $('eatCount'), craft: $('btnCraft'), vignette: $('vignette'), mapLabel: $('mapLabel'),
   };
   let hudTimer = 0, mapTimer = 0;
   function setText(el, v) { v = String(v); if (el.textContent !== v) el.textContent = v; }
@@ -2742,7 +3030,8 @@
     const ctx = P.dead ? { label: '—', idle: true } : context();
     setText(hud.actLabel, ctx.label);
     hud.actHint.hidden = !!ctx.idle;
-    hud.craft.classList.toggle('ready', RECIPES.some((r) => canAfford(r.cost) && !owned(r.id)));
+    hud.craft.classList.toggle('ready', RECIPES.some((r) => canAfford(r.cost) && !owned(r.id) && canCraftHere(r)));
+    setText(hud.flaskCount, P.flask);
     updateCraftSheet();
   }
 
@@ -2893,14 +3182,35 @@
     } else {
       hero.g.rotation.x = 0;
       const bob = animateHuman(hero, P.walk, P.walkAmt, false, P.swimming);
-      if (!P.grounded && !P.swimming) { hero.legL.rotation.x = 0.5; hero.legR.rotation.x = -0.3; }
-      if (P.swingT > 0) {
-        // Взмах дугой: рука поднимается и проходит сверху вниз наискосок
-        const t = 1 - P.swingT / 0.3;
-        hero.armR.rotation.x = -2.4 + t * 2.6 - Math.sin(t * Math.PI) * 0.4;
-        hero.armR.rotation.z = Math.sin(t * Math.PI) * 0.7;
+      let dy = P.grounded && !P.swimming ? bob : 0;
+      if (!P.grounded && !P.swimming) {
+        // В полёте: колени подтянуты, руки разведены для равновесия
+        const rising = P.vy > 0;
+        hero.legL.rotation.x = rising ? -0.95 : -0.45;
+        hero.legR.rotation.x = rising ? 0.4 : -0.15;
+        hero.armL.rotation.x = rising ? -0.9 : -0.5; hero.armL.rotation.z = -0.6;
+        hero.armR.rotation.x = rising ? -0.9 : -0.5; hero.armR.rotation.z = 0.6;
+        hero.upper.rotation.x = rising ? 0.12 : -0.06;
       }
-      hero.g.position.set(P.x, P.y + (P.grounded && !P.swimming ? bob : 0), P.z);
+      if (P.jumpPrep > 0) {
+        dy -= 0.16;
+        hero.upper.rotation.x = 0.28;
+        hero.legL.rotation.x = hero.legR.rotation.x = -0.45;
+        hero.armL.rotation.x = hero.armR.rotation.x = 0.55;
+      }
+      if (P.landT > 0) {
+        // Приземление: пружинит в коленях
+        const k = Math.sin((P.landT / 0.24) * Math.PI);
+        dy -= 0.18 * k;
+        hero.upper.rotation.x += 0.28 * k;
+        hero.legL.rotation.x -= 0.35 * k; hero.legR.rotation.x -= 0.35 * k;
+        hero.armL.rotation.x -= 0.35 * k; hero.armR.rotation.x -= 0.35 * k;
+      }
+      applyAnim();
+      dy += animPose.dy;
+      const fw = forward();
+      hero.g.position.set(P.x + fw.x * animPose.lunge, P.y + dy, P.z + fw.z * animPose.lunge);
+      refreshEquipment();
     }
 
     updateCamera(dt, false, inMenu);
@@ -2942,13 +3252,16 @@
   // Отладка для разработки: открой игру с ?debug=1 в адресе
   if (/[?&]debug=1/.test(location.search)) {
     window.__game = {
-      P, W, caveEntrances, settings, drops, get caveData() { return cave; },
+      P, W, caveEntrances, settings, drops, res: resources, get caveData() { return cave; },
       tp(x, z) { if (inCave) leaveCave(true); P.x = x; P.z = z; P.y = getHeight(x, z) + 2; updateGrass(true); },
       time(t, night) { W.t = t; W.night = !!night; },
       cave(i) { const e = caveEntrances[i || 0]; P.x = e.ix; P.z = e.iz; enterCave(e); },
       give(k, n) { invAdd(k, n); },
       equip(w) { P.weapon = w; refreshEquipment(); },
-      swing() { P.swingT = 0.3; },
+      anim(name) { playAnim(name); },
+      zombie() { spawnZombieAt(P.x + Math.sin(P.face) * 2, P.z + Math.cos(P.face) * 2, !!inCave); },
+      get zombies() { return zombies; },
+      pose(name, t) { playAnim(name); P.anim.t = t * P.anim.dur; P.anim.frozen = true; },
       cam(yaw, pitch, dist) { camYaw = yaw; camPitch = pitch; if (dist) settings.dist = dist; },
       state() { return { inCave, x: P.x, z: P.z, y: P.y, swimming: P.swimming, zombies: zombies.length, res: resources.length }; },
     };

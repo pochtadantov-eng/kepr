@@ -166,6 +166,8 @@
   .round.small { width: 60px; height: 60px; font-size: 12px; }
   #btnJump { right: 0; bottom: 0; width: 76px; height: 76px; font-size: 13px; }
   #btnEat { right: 88px; bottom: 4px; }
+  #btnDrink { right: 88px; bottom: 72px; }
+  .round em.water { background: var(--water); }
   #btnCraft { right: 8px; bottom: 88px; }
   #btnCraft.ready { border-color: var(--ember); color: var(--ember); }
   .round em {
@@ -374,10 +376,11 @@
   <div id="controls">
     <button id="btnCraft" class="round small" type="button">Крафт</button>
     <button id="btnEat" class="round small" type="button">Есть<em id="eatCount">0</em></button>
+    <button id="btnDrink" class="round small" type="button">Пить<em id="flaskCount" class="water">4</em></button>
     <button id="btnJump" class="round small" type="button">Прыжок</button>
   </div>
   <div id="actHint" hidden>Тап по экрану — <b id="actLabel">Удар</b></div>
-  <div id="keys">WASD — ходить · пробел — прыжок · E или клик — действие · F — есть · I — рюкзак · C — крафт · Esc — пауза · мышь — камера</div>
+  <div id="keys">WASD — ходить · пробел — прыжок · E или клик — действие · F — есть · Q — пить · I — рюкзак · C — крафт · Esc — пауза · мышь — камера</div>
 </div>
 
 <div id="bag" class="sheet" hidden>
@@ -421,7 +424,7 @@
         <button class="btn primary" id="btnNewYes" type="button">Начать</button>
       </div>
     </div>
-    <span class="version">Версия 0.10</span>
+    <span class="version">Версия 0.11</span>
   </div>
 </div>
 
@@ -434,9 +437,9 @@
       <li><b>Тап</b>Короткий тап по экрану рубит, добывает, собирает, поит и бьёт. Держи палец на месте — действие повторяется.</li>
       <li><b>Прыжок</b>Кнопка «Прыжок» или пробел. В глубокой воде ты плывёшь.</li>
       <li><b>Пещеры</b>Ищи тёмные проходы в горах и просто заходи внутрь. Внутри железо, кристаллы и пещерные зомби. Выход — столб света.</li>
-      <li><b>Выживание</b>Голод и жажда падают. Ешь ягоды, пей у озера. Здоровье растёт, когда ты сыт и напился.</li>
+      <li><b>Выживание</b>Голод и жажда падают. Ешь ягоды. Набери флягу у воды (тап) и пей кнопкой «Пить». Здоровье растёт, когда ты сыт и напился.</li>
       <li><b>Рюкзак</b>Кнопка с рюкзаком справа: 30 ячеек по 64 штуки. Нажми на ячейку, чтобы выбросить вещи.</li>
-      <li><b>Крафт</b>Меч и железный меч бьют сильнее, фонарь светит, костёр лечит, стена задерживает зомби.</li>
+      <li><b>Крафт</b>Сначала собери 6 древесины и поставь верстак. Рядом с ним делаются топор, мечи и фонарь. Костёр и стену можно строить где угодно.</li>
       <li><b>Ночь</b>Приходят зомби, и с каждой ночью их больше. На рассвете они сгорают.</li>
     </ul>
     <button class="btn" type="button" data-back>Назад</button>
