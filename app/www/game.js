@@ -20,9 +20,9 @@
     bag: { slots: 30, stack: 64 },
     campfire: { life: 240, radius: 7, heal: 4 },
     wall: { hp: 150 },
-    zombie: { hp: 60, hpDay: 10, speed: 3.2, speedDay: 0.12, maxSpeed: 4.6, dmg: 15, range: 1.35, cd: 1,
+    zombie: { hp: 60, hpDay: 10, speed: 3.2, speedDay: 0.12, maxSpeed: 4.6, dmg: 8, range: 1.35, cd: 1,
       base: 3, perDay: 2, max: 25, interval: 1.5, minD: 28, maxD: 42 },
-    caveZombie: { hp: 90, dmg: 18, speed: 3.4, aggro: 26 },
+    caveZombie: { hp: 90, dmg: 11, speed: 3.4, aggro: 26 },
     res: {
       tree: { item: 'wood', amount: 5, respawn: 60, action: 'Рубить', sound: 'chop' },
       rock: { item: 'stone', amount: 4, respawn: 80, action: 'Добыть', sound: 'mine' },
@@ -2141,7 +2141,7 @@
       rock: rockMaterial(tex, 0.2, 0.45, true),
       boulder: rockMaterial(tex, 0.4, 0.35, false),
       ore: rockMaterial(tex, 0.4, 0.35, false),
-      puddle: new THREE.MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.04, metalness: 0.7, transparent: true, opacity: 0.88 }),
+      puddle: new THREE.MeshStandardMaterial({ color: 0x2a3036, roughness: 0.06, metalness: 0.35, transparent: true, opacity: 0.62, depthWrite: false }),
       glow: new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
     };
     caveRock.ore.color.setHex(0x6e665f);
@@ -2235,7 +2235,7 @@
     const rng = mulberry32(9000 + index * 101);
     const gen = generateCaveGrid(rng);
     const n = CAVE.n, C = CAVE.cell, Y = CAVE.y;
-    const data = { index, grid: gen.grid, resources: [], solids: [], exit: { x: caveCenter(gen.entry.c), z: caveCenter(gen.entry.r) }, flow: null, flowCell: -1, map: null };
+    const data = { index, grid: gen.grid, resources: [], solids: [], puddles: null, exit: { x: caveCenter(gen.entry.c), z: caveCenter(gen.entry.r) }, flow: null, flowCell: -1, map: null };
 
     const isWall = (r, c) => c < 0 || r < 0 || c >= n || r >= n || gen.grid[r * n + c] === 1;
     const shade = (hex) => { const c = new THREE.Color(hex); c.offsetHSL(0, 0, (rng() - 0.5) * 0.12); return c; };
@@ -2256,13 +2256,31 @@
     const rockSeg = (n + border * 2) * SUB, rockH = new Float32Array(pos.count);
     data.rock = { h: rockH, seg: rockSeg, step: size / rockSeg, half: size / 2 };
     const floorAt = (x, z) => Y + rockHeightAt(data.rock, x, z);
+    const PUDDLE_LEVEL = -0.2;
+    const puddleSpots = [];
+    {
+      const prng = mulberry32(seed + 99), open = [];
+      for (let r = 2; r < n - 2; r++) for (let c = 2; c < n - 2; c++) {
+        let solid = false;
+        for (let dr = -1; dr <= 1 && !solid; dr++) for (let dc = -1; dc <= 1; dc++) if (isWall(r + dr, c + dc)) { solid = true; break; }
+        if (!solid && Math.hypot(c - gen.entry.c, r - gen.entry.r) > 6) open.push([r, c]);
+      }
+      for (let i = 0; i < 10 && open.length; i++) {
+        const [r, c] = open.splice(Math.floor(prng() * open.length), 1)[0];
+        puddleSpots.push({ x: caveCenter(c) + (prng() - 0.5), z: caveCenter(r) + (prng() - 0.5), r: 0.7 + prng() * 0.7 });
+      }
+    }
     const floorCol = new THREE.Color(0x8c8278), wallCol = new THREE.Color(0xb0a596), topCol = new THREE.Color(0x6a6058), wetCol = new THREE.Color(0x5c544e), col = new THREE.Color();
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), z = pos.getZ(i);
       // Скала начинается чуть дальше границы клетки, поэтому игрок не может зайти в неё
       const w = clamp(wallness(x, z) + (fbm(x * 0.35, z * 0.35, seed, 3) - 0.5) * 0.25, 0, 1);
       const k = smoothstep(0.52, 0.82, w);
-      const floorBump = (fbm(x * 0.4, z * 0.4, seed + 1, 3) - 0.5) * 0.7 + Math.max(0, vnoise(x * 1.3, z * 1.3, seed + 8) - 0.8) * 1.4;
+      let floorBump = (fbm(x * 0.4, z * 0.4, seed + 1, 3) - 0.5) * 0.7 + Math.max(0, vnoise(x * 1.3, z * 1.3, seed + 8) - 0.8) * 1.4;
+      for (const pd of puddleSpots) {
+        const d = Math.hypot(x - pd.x, z - pd.z);
+        if (d < pd.r + 0.8) floorBump = lerp(PUDDLE_LEVEL, floorBump, smoothstep(pd.r * 0.8, pd.r + 0.8, d));
+      }
       const wallH = CAVE.ceil + 0.8 + (fbm(x * 0.25, z * 0.25, seed + 2, 3) - 0.3) * 2.5;
       const hgt = k * wallH + floorBump * (1 - k);
       pos.setY(i, hgt);
@@ -2301,7 +2319,6 @@
     const rubbleBatch = new Batch(GEO.rock, M.boulder, { colored: true });
     const tone = () => { const v = 0.45 + rng() * 0.25; return new THREE.Color(v, v * 0.95, v * 0.9); };
     const edgeFloors = [];
-    let puddles = 0;
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
       if (isWall(r, c)) continue;
       const x = caveCenter(c), z = caveCenter(r);
@@ -2321,15 +2338,15 @@
         const rx = x + (rng() - 0.5) * 2.4, rz = z + (rng() - 0.5) * 2.4;
         rubbleBatch.add(matrixOf(rx, floorAt(rx, rz) + sc * 0.15, rz, sc, sc * 0.7, sc * (0.8 + rng() * 0.4), rng() * TAU, rng(), rng()), tone());
       }
-      if (!nearEntry && adj === 0 && puddles < 14 && rng() < 0.04) {
-        puddles++;
-        const pd = new THREE.Mesh(new THREE.CircleGeometry(0.8 + rng() * 1.2, 18), M.puddle);
-        pd.rotation.x = -Math.PI / 2;
-        pd.scale.set(1, 0.6 + rng() * 0.5, 1);
-        pd.position.set(x, floorAt(x, z) + 0.05, z);
-        pd.userData.ownGeometry = true;
-        caveGroup.add(pd);
-      }
+    }
+    // Вода лежит в ямке ровно, края прячутся в полу
+    data.puddles = puddleSpots;
+    for (const spot of puddleSpots) {
+      const pd = new THREE.Mesh(new THREE.CircleGeometry(spot.r, 24), M.puddle);
+      pd.rotation.x = -Math.PI / 2;
+      pd.position.set(spot.x, Y + PUDDLE_LEVEL + 0.06, spot.z);
+      pd.userData.ownGeometry = true;
+      caveGroup.add(pd);
     }
     if (spikeBatch.items.length) spikeBatch.build(caveGroup);
     if (rubbleBatch.items.length) rubbleBatch.build(caveGroup);
@@ -2884,6 +2901,7 @@
   // Камера: крутится по кругу и вверх-вниз вокруг игрока
   // ==================================================================
   const camLook = new THREE.Vector3();
+  let camFrac = 1;
   function cameraBlocked(x, y, z) {
     if (y < getHeight(x, z) + 0.35) return true;
     let hit = false;
@@ -2904,15 +2922,16 @@
     let ty = lookY + Math.sin(pitch) * dist;
     if (!inCave) {
       ty = Math.max(ty, getHeight(tx, tz) + 0.7, WATER + 0.4);
-      // Если между игроком и камерой дерево или склон — камера подъезжает ближе
-      const steps = 22;
-      for (let i = 2; i <= steps; i++) {
-        const t = i / steps, px = P.x + (tx - P.x) * t, pz = P.z + (tz - P.z) * t, py = lookY + (ty - lookY) * t;
-        if (cameraBlocked(px, py, pz)) {
-          const t2 = Math.max(0.12, (i - 1.5) / steps);
-          tx = P.x + (tx - P.x) * t2; tz = P.z + (tz - P.z) * t2; ty = lookY + (ty - lookY) * t2;
-          break;
+      if (!orbit) {
+        // Если между игроком и камерой дерево или склон — камера подъезжает ближе, а потом плавно отъезжает
+        let frac = 1;
+        const steps = 22;
+        for (let i = 2; i <= steps; i++) {
+          const t = i / steps, px = P.x + (tx - P.x) * t, pz = P.z + (tz - P.z) * t, py = lookY + (ty - lookY) * t;
+          if (cameraBlocked(px, py, pz)) { frac = Math.max(0.12, (i - 1.5) / steps); break; }
         }
+        camFrac = frac < camFrac || snap ? frac : lerp(camFrac, frac, 1 - Math.exp(-dt * 2.5));
+        tx = P.x + (tx - P.x) * camFrac; tz = P.z + (tz - P.z) * camFrac; ty = lookY + (ty - lookY) * camFrac;
       }
     } else if (cave) {
       // Камера не залезает в скалу и не поднимается выше потолка
@@ -3066,7 +3085,7 @@
   let wakeLock = null;
 
   function showScreen(name) {
-    if (name === 'pause' && screen !== 'game') return;
+    if (name === 'pause' && screen !== 'game' && screen !== 'pause') return;
     if (screen === 'game' && name !== 'game') { releaseAllInput(); toggleCraft(false); toggleBag(false); persist(); }
     screen = ['how', 'records', 'settings'].includes(name) ? screen : name;
     for (const id of OVERLAYS) $(id).hidden = id !== name;
@@ -3083,7 +3102,10 @@
     if (focusable && !matchMedia('(pointer: coarse)').matches) focusable.focus({ preventScroll: true });
   }
   function openPanel(name, from) { panelReturn = from; showScreen(name); }
-  document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => showScreen(panelReturn)));
+  document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => {
+    if (b.closest('#settings')) { writeJson(KEYS.settings, settings); applySettings(); }
+    showScreen(panelReturn);
+  }));
 
   function refreshMenu() {
     const saved = hasSave();
@@ -3284,6 +3306,7 @@
       anim(name) { playAnim(name); },
       zombie() { spawnZombieAt(P.x + Math.sin(P.face) * 2, P.z + Math.cos(P.face) * 2, !!inCave); },
       get zombies() { return zombies; },
+      camDist() { return camera.position.distanceTo(hero.g.position); },
       rockH(x, z) { return inCave ? caveRockH(x, z) : null; },
       pose(name, t) { playAnim(name); P.anim.t = t * P.anim.dur; P.anim.frozen = true; },
       cam(yaw, pitch, dist) { camYaw = yaw; camPitch = pitch; if (dist) settings.dist = dist; },
