@@ -1558,10 +1558,28 @@
   // ==================================================================
   // Столкновения и высота земли
   // ==================================================================
-  const CAVE = { n: 56, cell: 2.6, y: -400, ceil: 8 };
+  const CAVE = { n: 56, cell: 2.6, y: -400, ceil: 8, wall: 0.85 };
   const SWIM_DEPTH = 1.05;
 
-  function groundY(x, z) { return inCave ? CAVE.y : getHeight(x, z); }
+  // Высота поверхности пещеры в точке: те же треугольники, что и видимая скала
+  function rockHeightAt(rock, x, z) {
+    const fx = clamp((x + rock.half) / rock.step, 0, rock.seg - 0.0001), fz = clamp((z + rock.half) / rock.step, 0, rock.seg - 0.0001);
+    const c = Math.floor(fx), r = Math.floor(fz), tx = fx - c, tz = fz - r, n1 = rock.seg + 1, h = rock.h, i = r * n1 + c;
+    if (tx + tz <= 1) return h[i] + (h[i + 1] - h[i]) * tx + (h[i + n1] - h[i]) * tz;
+    const e = h[i + n1 + 1];
+    return e + (h[i + n1] - e) * (1 - tx) + (h[i + 1] - e) * (1 - tz);
+  }
+  const caveRockH = (x, z) => rockHeightAt(cave.rock, x, z);
+  // Стена там, где скала поднимается выше колена — ровно там, где её видно
+  function caveBlocked(x, z, r) {
+    if (caveRockH(x, z) > CAVE.wall) return true;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU;
+      if (caveRockH(x + Math.cos(a) * r, z + Math.sin(a) * r) > CAVE.wall) return true;
+    }
+    return false;
+  }
+  function groundY(x, z) { return inCave ? CAVE.y + (cave ? Math.min(caveRockH(x, z), CAVE.wall) : 0) : getHeight(x, z); }
 
   function pushFromCircle(e, ox, oz, or) {
     const dx = e.x - ox, dz = e.z - oz, d = Math.hypot(dx, dz), min = e.r + or;
@@ -1588,7 +1606,6 @@
     e.z = w.z - lx * s + lz * c;
     return true;
   }
-  const cellBox = { x: 0, z: 0, rot: 0, hw: CAVE.cell / 2, hd: CAVE.cell / 2 };
   function caveSolid(c, r) { return c < 0 || r < 0 || c >= CAVE.n || r >= CAVE.n || cave.grid[r * CAVE.n + c] === 1; }
   const caveCellOf = (v) => Math.floor(v / CAVE.cell + CAVE.n / 2);
   const caveCenter = (i) => (i - CAVE.n / 2 + 0.5) * CAVE.cell;
@@ -1596,12 +1613,6 @@
   function collide(e) {
     let touchedWall = null;
     if (inCave) {
-      const c0 = caveCellOf(e.x - e.r) , c1 = caveCellOf(e.x + e.r), r0 = caveCellOf(e.z - e.r), r1 = caveCellOf(e.z + e.r);
-      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
-        if (!caveSolid(c, r)) continue;
-        cellBox.x = caveCenter(c); cellBox.z = caveCenter(r);
-        pushFromBox(e, cellBox);
-      }
       for (const res of cave.resources) if (res.active) pushFromCircle(e, res.x, res.z, res.r);
       for (const o of cave.solids) pushFromCircle(e, o.x, o.z, o.r);
       return null;
@@ -1620,7 +1631,14 @@
   function tryMove(e, dx, dz, footY) {
     const step = Math.hypot(dx, dz);
     if (step < 1e-6) return;
-    if (inCave) { e.x += dx; e.z += dz; return; }
+    if (inCave) {
+      // Если уже упёрлись (например, вытолкнул зомби), разрешаем выйти из скалы
+      const free = (x, z) => !caveBlocked(x, z, e.r) || caveBlocked(e.x, e.z, e.r);
+      if (free(e.x + dx, e.z + dz)) { e.x += dx; e.z += dz; }
+      else if (free(e.x + dx, e.z)) e.x += dx;
+      else if (free(e.x, e.z + dz)) e.z += dz;
+      return;
+    }
     const maxRise = step * 1.25 + 0.03;
     const canGo = (x, z) => getHeight(x, z) - footY <= maxRise || getHeight(x, z) < WATER - SWIM_DEPTH + 0.2;
     if (canGo(e.x + dx, e.z + dz)) { e.x += dx; e.z += dz; return; }
@@ -1950,7 +1968,7 @@
       const d = drops[i];
       if (!!d.cave !== !!inCave) continue;
       d.age += dt;
-      const g = inCave ? CAVE.y : Math.max(getHeight(d.x, d.z), WATER - 0.15);
+      const g = inCave ? groundY(d.x, d.z) : Math.max(getHeight(d.x, d.z), WATER - 0.15);
       d.mesh.position.set(d.x, g + 0.4 + Math.sin(d.age * 3) * 0.08, d.z);
       d.mesh.rotation.y = d.age * 1.5;
       // Подбираем, когда игрок подходит (не сразу после выброса)
@@ -2235,18 +2253,20 @@
     const rockGeo = new THREE.PlaneGeometry(size, size, (n + border * 2) * SUB, (n + border * 2) * SUB);
     rockGeo.rotateX(-Math.PI / 2);
     const pos = rockGeo.attributes.position, colors = new Float32Array(pos.count * 3);
+    const rockSeg = (n + border * 2) * SUB, rockH = new Float32Array(pos.count);
+    data.rock = { h: rockH, seg: rockSeg, step: size / rockSeg, half: size / 2 };
+    const floorAt = (x, z) => Y + rockHeightAt(data.rock, x, z);
     const floorCol = new THREE.Color(0x8c8278), wallCol = new THREE.Color(0xb0a596), topCol = new THREE.Color(0x6a6058), wetCol = new THREE.Color(0x5c544e), col = new THREE.Color();
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), z = pos.getZ(i);
       // Скала начинается чуть дальше границы клетки, поэтому игрок не может зайти в неё
       const w = clamp(wallness(x, z) + (fbm(x * 0.35, z * 0.35, seed, 3) - 0.5) * 0.25, 0, 1);
       const k = smoothstep(0.52, 0.82, w);
-      // Выступы и ниши: точки стены немного сдвигаются вбок
-      const side = k * (1 - k) * 4;
-      const ox = (vnoise(x * 0.5, z * 0.5, seed + 5) - 0.5) * 0.7 * side, oz = (vnoise(x * 0.5 + 9, z * 0.5, seed + 6) - 0.5) * 0.7 * side;
       const floorBump = (fbm(x * 0.4, z * 0.4, seed + 1, 3) - 0.5) * 0.7 + Math.max(0, vnoise(x * 1.3, z * 1.3, seed + 8) - 0.8) * 1.4;
       const wallH = CAVE.ceil + 0.8 + (fbm(x * 0.25, z * 0.25, seed + 2, 3) - 0.3) * 2.5;
-      pos.setXYZ(i, x + ox, k * wallH + floorBump * (1 - k), z + oz);
+      const hgt = k * wallH + floorBump * (1 - k);
+      pos.setY(i, hgt);
+      rockH[i] = hgt;
       col.copy(floorCol).lerp(wallCol, smoothstep(0.08, 0.45, k)).lerp(topCol, smoothstep(0.6, 1, k));
       if (k < 0.1 && floorBump < -0.15) col.lerp(wetCol, 0.6);
       col.multiplyScalar(0.8 + fbm(x * 0.15, z * 0.15, seed + 4, 2) * 0.4);
@@ -2291,21 +2311,22 @@
       if (adj > 0 && !nearEntry) edgeFloors.push({ r, c, x, z });
       if (adj > 0 && !nearEntry && rng() < 0.16) {
         const sx = x + (rng() - 0.5) * 1.4, sz = z + (rng() - 0.5) * 1.4, sr = 0.22 + rng() * 0.2;
-        spikeBatch.add(matrixOf(sx, Y - 0.2, sz, sr, 0.9 + rng() * 1.8, sr, rng() * 3), tone());
+        spikeBatch.add(matrixOf(sx, floorAt(sx, sz) - 0.2, sz, sr, 0.9 + rng() * 1.8, sr, rng() * 3), tone());
         data.solids.push({ x: sx, z: sz, r: sr + 0.05 });
       }
       if (rng() < 0.09) spikeBatch.add(matrixOf(x + (rng() - 0.5) * 1.8, Y + CAVE.ceil - 0.6, z + (rng() - 0.5) * 1.8, 0.2 + rng() * 0.25, 1 + rng() * 2.2, 0.2 + rng() * 0.25, rng() * 3, Math.PI), tone());
       const pebbles = adj > 0 ? 3 : rng() < 0.3 ? 1 : 0;
       for (let k = 0; k < pebbles; k++) {
         const sc = 0.08 + rng() * (adj > 0 ? 0.35 : 0.18);
-        rubbleBatch.add(matrixOf(x + (rng() - 0.5) * 2.4, Y + sc * 0.2, z + (rng() - 0.5) * 2.4, sc, sc * 0.7, sc * (0.8 + rng() * 0.4), rng() * TAU, rng(), rng()), tone());
+        const rx = x + (rng() - 0.5) * 2.4, rz = z + (rng() - 0.5) * 2.4;
+        rubbleBatch.add(matrixOf(rx, floorAt(rx, rz) + sc * 0.15, rz, sc, sc * 0.7, sc * (0.8 + rng() * 0.4), rng() * TAU, rng(), rng()), tone());
       }
       if (!nearEntry && adj === 0 && puddles < 14 && rng() < 0.04) {
         puddles++;
         const pd = new THREE.Mesh(new THREE.CircleGeometry(0.8 + rng() * 1.2, 18), M.puddle);
         pd.rotation.x = -Math.PI / 2;
         pd.scale.set(1, 0.6 + rng() * 0.5, 1);
-        pd.position.set(x, Y + 0.06, z);
+        pd.position.set(x, floorAt(x, z) + 0.05, z);
         pd.userData.ownGeometry = true;
         caveGroup.add(pd);
       }
@@ -2319,10 +2340,10 @@
     picks.forEach((p, i) => {
       const type = i < 17 ? 'iron' : 'crystal';
       const g = new THREE.Group();
-      g.position.set(p.x, Y, p.z);
+      g.position.set(p.x, floorAt(p.x, p.z), p.z);
       if (type === 'iron') {
         const rock = new THREE.Mesh(GEO.rock, M.ore);
-        rock.scale.set(0.9, 0.7, 0.85); rock.position.y = 0.35; rock.rotation.set(rng(), rng() * 3, 0);
+        rock.scale.set(0.9, 0.7, 0.85); rock.position.y = 0.22; rock.rotation.set(rng(), rng() * 3, 0);
         g.add(rock);
         for (let k = 0; k < 6; k++) {
           const ore = new THREE.Mesh(GEO.box, oreMat);
@@ -2337,7 +2358,7 @@
         for (let k = 0; k < 5; k++) {
           const cr = new THREE.Mesh(GEO.petal, mat);
           cr.scale.set(1.6, 4 + rng() * 4, 1.6);
-          cr.position.set((rng() - 0.5) * 0.7, -1.6, (rng() - 0.5) * 0.7);
+          cr.position.set((rng() - 0.5) * 0.7, -1.8, (rng() - 0.5) * 0.7);
           cr.rotation.set((rng() - 0.5) * 0.7, rng() * 3, (rng() - 0.5) * 0.7);
           g.add(cr);
         }
@@ -2571,8 +2592,8 @@
         const swim = !z.cave && getHeight(z.x, z.z) < WATER - SWIM_DEPTH;
         if (d > Z.range) {
           const sp = z.speed * (swim ? 0.6 : 1) * dt;
-          z.x += dx / dd * sp;
-          z.z += dz / dd * sp;
+          if (z.cave) tryMove(z, dx / dd * sp, dz / dd * sp, z.y);
+          else { z.x += dx / dd * sp; z.z += dz / dd * sp; }
           moving = true;
         } else if (z.atkCd <= 0) {
           z.atkCd = Z.cd;
@@ -2582,7 +2603,8 @@
         z.groanT -= dt;
         if (z.groanT <= 0) { z.groanT = rand(4, 10); if (d < 28) Sound.play('groan', 1 - d / 28); }
       }
-      z.x += z.kx * dt; z.z += z.kz * dt;
+      if (z.cave) tryMove(z, z.kx * dt, z.kz * dt, z.y);
+      else { z.x += z.kx * dt; z.z += z.kz * dt; }
       const decay = Math.exp(-dt * 9);
       z.kx *= decay; z.kz *= decay;
 
@@ -2898,7 +2920,8 @@
       const steps = 28;
       for (let i = 1; i <= steps; i++) {
         const t = i / steps, px = P.x + (tx - P.x) * t, pz = P.z + (tz - P.z) * t;
-        if (caveSolid(caveCellOf(px), caveCellOf(pz))) {
+        const py = lookY + (ty - lookY) * t;
+        if (caveRockH(px, pz) > py - CAVE.y - 0.35) {
           const t2 = Math.max(0.08, (i - 2) / steps);
           tx = P.x + (tx - P.x) * t2; tz = P.z + (tz - P.z) * t2; ty = lookY + (ty - lookY) * t2;
           break;
@@ -3261,6 +3284,7 @@
       anim(name) { playAnim(name); },
       zombie() { spawnZombieAt(P.x + Math.sin(P.face) * 2, P.z + Math.cos(P.face) * 2, !!inCave); },
       get zombies() { return zombies; },
+      rockH(x, z) { return inCave ? caveRockH(x, z) : null; },
       pose(name, t) { playAnim(name); P.anim.t = t * P.anim.dur; P.anim.frozen = true; },
       cam(yaw, pitch, dist) { camYaw = yaw; camPitch = pitch; if (dist) settings.dist = dist; },
       state() { return { inCave, x: P.x, z: P.z, y: P.y, swimming: P.swimming, zombies: zombies.length, res: resources.length }; },
