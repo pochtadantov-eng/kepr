@@ -69,9 +69,9 @@ jobs:
       - name: Опубликовать релиз
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: app-v0.9.${{ github.run_number }}
+          tag_name: app-v0.11.${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: Долгая ночь 0.9.${{ github.run_number }}
+          name: Долгая ночь 0.11.${{ github.run_number }}
           make_latest: true
           files: app/dolgaya-noch.apk
           body: |
