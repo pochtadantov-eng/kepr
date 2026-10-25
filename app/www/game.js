@@ -61,7 +61,7 @@
     try { if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* хранилище недоступно */ }
   }
 
-  const settings = Object.assign({ sens: 1, dist: 14, invert: false, shadows: true, quality: 'mid', volume: 0.8, sound: true },
+  const settings = Object.assign({ sens: 1, dist: 14, invert: false, shadows: true, quality: 'mid', volume: 0.8, sound: true, autoQuality: true },
     readJson(KEYS.settings, {}));
   const stats = Object.assign({ best: 0, kills: 0, games: 0 }, readJson(KEYS.stats, {}));
   try { stats.best = Math.max(stats.best, parseInt(localStorage.getItem(KEYS.oldBest) || '0', 10) || 0); } catch (e) { /* нет хранилища */ }
@@ -377,7 +377,9 @@
   scene.fog.color = scene.background;
 
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 1400);
-  const QUALITY = { low: 0.75, mid: 1.25, high: 2 };
+  const QUALITY = { low: 0.7, mid: 1.0, high: 1.5 };
+  // Дальность прорисовки деревьев и тумана по качеству графики
+  const VIEW = { low: 220, mid: 380, high: 560 };
   function resize() {
     const w = app.clientWidth || window.innerWidth, h = app.clientHeight || window.innerHeight;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY[settings.quality] || 1.25));
@@ -687,10 +689,18 @@
     dummy.updateMatrix();
     return dummy.matrix.clone();
   }
+  // Участки растительности: каждый со своей пачкой, чтобы прятать дальние и невидимые
+  const chunkMeshes = [];
+  const CHUNK = 96;
   class Batch {
     constructor(geo, mat, opts) { this.geo = geo; this.mat = mat; this.items = []; this.opts = opts || {}; this.mesh = null; }
-    add(matrix, color) { this.items.push({ m: matrix, c: color || null }); return this.items.length - 1; }
+    add(matrix, color) {
+      const it = { m: matrix, c: color || null, mesh: null, i: this.items.length };
+      this.items.push(it);
+      return this.opts.chunked ? it : this.items.length - 1;
+    }
     build(parent) {
+      if (this.opts.chunked) return this.buildChunks(parent);
       const n = Math.max(1, this.items.length);
       const mesh = new THREE.InstancedMesh(this.geo, this.mat, n);
       const white = new THREE.Color(1, 1, 1);
@@ -705,6 +715,51 @@
       parent.add(mesh);
       this.mesh = mesh;
       return mesh;
+    }
+    buildChunks(parent) {
+      const groups = new Map(), v = new THREE.Vector3(), white = new THREE.Color(1, 1, 1);
+      for (const it of this.items) {
+        v.setFromMatrixPosition(it.m);
+        const k = Math.floor(v.x / CHUNK) + ',' + Math.floor(v.z / CHUNK);
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(it);
+      }
+      for (const list of groups.values()) {
+        const mesh = new THREE.InstancedMesh(this.geo, this.mat, list.length);
+        const box = new THREE.Box3();
+        list.forEach((it, i) => {
+          mesh.setMatrixAt(i, it.m);
+          if (this.opts.colored) mesh.setColorAt(i, it.c || white);
+          box.expandByPoint(v.setFromMatrixPosition(it.m));
+          it.mesh = mesh; it.i = i;
+        });
+        box.expandByScalar(6);
+        mesh.castShadow = !!this.opts.cast;
+        mesh.receiveShadow = !!this.opts.receive;
+        mesh.frustumCulled = false;
+        parent.add(mesh);
+        chunkMeshes.push({ mesh, sphere: box.getBoundingSphere(new THREE.Sphere()), cast: !!this.opts.cast });
+      }
+    }
+  }
+  // Раз в несколько кадров: дальние и находящиеся вне обзора участки не рисуются, тень только у ближних
+  const frustum = new THREE.Frustum(), projView = new THREE.Matrix4();
+  let cullT = 0;
+  function cullChunks(dt, force) {
+    cullT -= dt;
+    if (cullT > 0 && !force) return;
+    cullT = 0.12;
+    camera.updateMatrixWorld();
+    projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    frustum.setFromProjectionMatrix(projView);
+    const far = Math.min(scene.fog.far + 20, VIEW[settings.quality] || 380), shadowR = settings.quality === 'high' ? 70 : 45;
+    for (const c of chunkMeshes) {
+      const d = c.sphere.center.distanceTo(camera.position) - c.sphere.radius;
+      c.mesh.visible = d < far && frustum.intersectsSphere(c.sphere);
+      if (c.cast) {
+        const dp = Math.hypot(c.sphere.center.x - P.x, c.sphere.center.z - P.z) - c.sphere.radius;
+        c.mesh.castShadow = dp < shadowR;
+      }
     }
   }
 
@@ -723,11 +778,11 @@
   }
   const lam = (color, extra) => new THREE.MeshLambertMaterial(Object.assign({ color }, extra || {}));
   const GEO = {
-    trunk: new THREE.CylinderGeometry(0.7, 1, 1, 9).translate(0, 0.5, 0),
-    cone: new THREE.ConeGeometry(1, 1, 12).translate(0, 0.5, 0),
+    trunk: new THREE.CylinderGeometry(0.7, 1, 1, 7, 1, true).translate(0, 0.5, 0),
+    cone: new THREE.ConeGeometry(1, 1, 9).translate(0, 0.5, 0),
     blob: new THREE.IcosahedronGeometry(1, 1),
     rock: lumpyRock(),
-    berry: new THREE.SphereGeometry(0.13, 6, 5),
+    berry: new THREE.OctahedronGeometry(0.13, 0),
     stem: new THREE.CylinderGeometry(0.015, 0.022, 0.42, 3).translate(0, 0.21, 0),
     petal: new THREE.OctahedronGeometry(0.1, 0).translate(0, 0.44, 0),
     flame: new THREE.ConeGeometry(0.42, 1.1, 6).translate(0, 0.55, 0),
@@ -802,14 +857,14 @@
   function buildNature() {
     const rng = worldRng;
     const B = {
-      trunk: new Batch(GEO.trunk, MAT.trunk, { cast: true, colored: true }),
-      cone: new Batch(GEO.cone, MAT.crown, { cast: true, colored: true }),
-      blob: new Batch(GEO.blob, MAT.crown, { cast: true, colored: true }),
-      rock: new Batch(GEO.rock, MAT.rock, { cast: true, receive: true, colored: true }),
-      bush: new Batch(GEO.blob, MAT.bush, { cast: true, colored: true }),
-      berry: new Batch(GEO.berry, MAT.berry, {}),
-      stem: new Batch(GEO.stem, MAT.stem, {}),
-      petal: new Batch(GEO.petal, MAT.petal, { colored: true }),
+      trunk: new Batch(GEO.trunk, MAT.trunk, { chunked: true, cast: true, colored: true }),
+      cone: new Batch(GEO.cone, MAT.crown, { chunked: true, cast: true, colored: true }),
+      blob: new Batch(GEO.blob, MAT.crown, { chunked: true, cast: true, colored: true }),
+      rock: new Batch(GEO.rock, MAT.rock, { chunked: true, cast: true, receive: true, colored: true }),
+      bush: new Batch(GEO.blob, MAT.bush, { chunked: true, cast: true, colored: true }),
+      berry: new Batch(GEO.berry, MAT.berry, { chunked: true }),
+      stem: new Batch(GEO.stem, MAT.stem, { chunked: true }),
+      petal: new Batch(GEO.petal, MAT.petal, { chunked: true, colored: true }),
     };
     const col = (hex, jitter) => { const c = new THREE.Color(hex); c.offsetHSL((rng() - 0.5) * 0.03, (rng() - 0.5) * 0.1, (rng() - 0.5) * (jitter || 0.08)); return c; };
     function addRes(type, x, z, r, parts) {
@@ -936,11 +991,7 @@
 
     for (const key of Object.keys(B)) B[key].build(surface);
     for (const r of resources) {
-      r.parts = r.parts.map(([key, i]) => {
-        const mesh = B[key].mesh, m = new THREE.Matrix4();
-        mesh.getMatrixAt(i, m);
-        return { mesh, i, m };
-      });
+      r.parts = r.parts.map(([, it]) => ({ mesh: it.mesh, i: it.i, m: it.m }));
     }
   }
 
@@ -980,46 +1031,73 @@
     return g;
   }
   const GRASS = { cell: 1.05, max: 16000, near: 26 };
-  const grassMesh = new THREE.InstancedMesh(tuftGeometry(), windy(new THREE.MeshLambertMaterial({ vertexColors: true }), 0.32), GRASS.max);
-  grassMesh.frustumCulled = false;
-  grassMesh.setColorAt(0, new THREE.Color(1, 1, 1)); // создаёт буфер цветов на все пучки, поэтому до обнуления count
-  grassMesh.count = 0;
-  surface.add(grassMesh);
+  // Два набора травы: пока один показан, второй пересчитывается понемногу в фоне — без подвисаний
+  const grassMat = windy(new THREE.MeshLambertMaterial({ vertexColors: true }), 0.32);
+  const grassMeshes = [0, 1].map(() => {
+    const m = new THREE.InstancedMesh(tuftGeometry(), grassMat, GRASS.max);
+    m.frustumCulled = false;
+    m.setColorAt(0, new THREE.Color(1, 1, 1)); // создаёт буфер цветов на все пучки, поэтому до обнуления count
+    m.count = 0;
+    surface.add(m);
+    return m;
+  });
+  let grassFront = 0, grassJob = null;
   let grassCenter = { x: 1e9, z: 1e9 };
   const grassColor = new THREE.Color(), GRASS_FOREST = new THREE.Color(0.62, 0.78, 0.6), GRASS_SHORE = new THREE.Color(1.1, 1.05, 0.7);
-  function grassRadius() { return settings.quality === 'low' ? 45 : settings.quality === 'high' ? 120 : 85; }
+  const gM = new THREE.Matrix4(), gQ = new THREE.Quaternion(), gS = new THREE.Vector3(), gP = new THREE.Vector3(), gUp = new THREE.Vector3(0, 1, 0);
+  function grassRadius() { return settings.quality === 'low' ? 40 : settings.quality === 'high' ? 110 : 70; }
+  function* grassFill(mesh, cx, cz, R) {
+    const C = GRASS.cell, n0x = Math.floor((cx - R) / C), n1x = Math.ceil((cx + R) / C), n0z = Math.floor((cz - R) / C), n1z = Math.ceil((cz + R) / C);
+    const near = settings.quality === 'low' ? GRASS.near * 0.6 : GRASS.near;
+    let n = 0, work = 0;
+    for (let gx = n0x; gx <= n1x && n < GRASS.max; gx++) {
+      for (let gz = n0z; gz <= n1z && n < GRASS.max; gz++) {
+        const jx = hash2(gx, gz, 301), jz = hash2(gx, gz, 302);
+        const x = (gx + jx) * C, z = (gz + jz) * C;
+        const dx = x - cx, dz = z - cz, d2 = dx * dx + dz * dz;
+        if (d2 > R * R) continue;
+        // Дальше от игрока пучков меньше, но они крупнее — трава видна до самого горизонта
+        const far = d2 > near * near ? Math.sqrt(d2) / near : 1;
+        if (far > 1 && hash2(gx, gz, 304) > 1 / (far * far)) continue;
+        work++;
+        const h = getHeight(x, z);
+        if (h < 1.6 || h > 40) continue;
+        if (slopeAt(x, z) > 1.1) continue;
+        const k = (0.65 + hash2(gx, gz, 303) * 0.55) * Math.min(far, 2.4);
+        gQ.setFromAxisAngle(gUp, jz * TAU);
+        gM.compose(gP.set(x, h - 0.03, z), gQ, gS.set(k, k * (0.75 + jx * 0.5), k));
+        mesh.setMatrixAt(n, gM);
+        grassColor.setRGB(1, 1, 1).lerp(GRASS_FOREST, smoothstep(0.47, 0.6, forestK(x, z)));
+        if (h < 2.2) grassColor.lerp(GRASS_SHORE, 0.5);
+        mesh.setColorAt(n, grassColor);
+        n++;
+      }
+      if (work > 220) { work = 0; yield; }
+    }
+    mesh.count = n;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }
+  function swapGrass() {
+    grassMeshes[grassFront].visible = false;
+    grassFront = 1 - grassFront;
+    grassMeshes[grassFront].visible = true;
+    grassJob = null;
+  }
   function updateGrass(force) {
-    const R = grassRadius();
-    if (R === 0) { grassMesh.count = 0; return; }
     const cx = Math.round(P.x / 8) * 8, cz = Math.round(P.z / 8) * 8;
     if (!force && cx === grassCenter.x && cz === grassCenter.z) return;
     grassCenter = { x: cx, z: cz };
-    const C = GRASS.cell, n0x = Math.floor((cx - R) / C), n1x = Math.ceil((cx + R) / C), n0z = Math.floor((cz - R) / C), n1z = Math.ceil((cz + R) / C);
-    let n = 0;
-    for (let gx = n0x; gx <= n1x && n < GRASS.max; gx++) for (let gz = n0z; gz <= n1z && n < GRASS.max; gz++) {
-      const jx = hash2(gx, gz, 301), jz = hash2(gx, gz, 302);
-      const x = (gx + jx) * C, z = (gz + jz) * C;
-      const dx = x - cx, dz = z - cz, d2 = dx * dx + dz * dz;
-      if (d2 > R * R) continue;
-      // Дальше от игрока пучков меньше, но они крупнее — трава видна до самого горизонта
-      const near = settings.quality === 'low' ? GRASS.near * 0.6 : GRASS.near;
-      const far = d2 > near * near ? Math.sqrt(d2) / near : 1;
-      if (far > 1 && hash2(gx, gz, 304) > 1 / (far * far)) continue;
-      const h = getHeight(x, z);
-      if (h < 1.6 || h > 40) continue;
-      const s = slopeAt(x, z);
-      if (s > 1.1) continue;
-      const k = (0.65 + hash2(gx, gz, 303) * 0.55) * Math.min(far, 2.4);
-      grassMesh.setMatrixAt(n, matrixOf(x, h - 0.03, z, k, k * (0.75 + jx * 0.5), k, jz * TAU));
-      const f = forestK(x, z);
-      grassColor.setRGB(1, 1, 1).lerp(GRASS_FOREST, smoothstep(0.47, 0.6, f));
-      if (h < 2.2) grassColor.lerp(GRASS_SHORE, 0.5);
-      grassMesh.setColorAt(n, grassColor);
-      n++;
+    grassJob = grassFill(grassMeshes[1 - grassFront], cx, cz, grassRadius());
+    if (force) { while (!grassJob.next().done); swapGrass(); }
+  }
+  // Пара миллисекунд расчёта травы за кадр
+  function stepGrass(budgetMs) {
+    if (!grassJob) return;
+    const t0 = performance.now();
+    while (performance.now() - t0 < budgetMs) {
+      if (grassJob.next().done) { swapGrass(); return; }
     }
-    grassMesh.count = n;
-    grassMesh.instanceMatrix.needsUpdate = true;
-    if (grassMesh.instanceColor) grassMesh.instanceColor.needsUpdate = true;
   }
 
   // ==================================================================
@@ -2080,7 +2158,7 @@
   }
   function spawnDrop(id, n) {
     const f = forward();
-    const x = P.x + f.x * 1.4 + rand(-0.3, 0.3), z = P.z + f.z * 1.4 + rand(-0.3, 0.3);
+    const x = P.x + f.x * 2 + rand(-0.25, 0.25), z = P.z + f.z * 2 + rand(-0.25, 0.25);
     const m = new THREE.Mesh(roundedBox(1, 1, 1, 0.28), dropMats[id]);
     m.scale.setScalar(n >= 16 ? 0.45 : 0.32);
     m.castShadow = true;
@@ -2857,7 +2935,7 @@
     scene.background.copy(sky.material.uniforms.uHorizon.value);
     blend3(MAT.cloud.color, SKY.cloudNight, SKY.cloudDusk, SKY.cloudDay, dl);
     scene.fog.near = lerp(14, 120, dl);
-    scene.fog.far = lerp(90, 560, dl);
+    scene.fog.far = lerp(90, VIEW[settings.quality] || 380, dl);
     hemi.color.setHex(0xcfe8ff); hemi.groundColor.setHex(0x4a5a2a);
     hemi.intensity = 0.3 + 0.5 * dl;
     sun.intensity = 0.14 + 0.85 * dl;
@@ -3289,6 +3367,7 @@
     $('setDist').value = settings.dist; $('outDist').textContent = settings.dist;
     $('setInvert').checked = !!settings.invert;
     $('setShadows').checked = !!settings.shadows;
+    $('setAuto').checked = !!settings.autoQuality;
     document.querySelectorAll('#setQuality button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.q === settings.quality)));
   }
   function changeSetting(key, value) {
@@ -3304,6 +3383,7 @@
   $('setDist').addEventListener('input', (e) => changeSetting('dist', parseInt(e.target.value, 10)));
   $('setInvert').addEventListener('change', (e) => changeSetting('invert', e.target.checked));
   $('setShadows').addEventListener('change', (e) => changeSetting('shadows', e.target.checked));
+  $('setAuto').addEventListener('change', (e) => changeSetting('autoQuality', e.target.checked));
   document.querySelectorAll('#setQuality button').forEach((b) => b.addEventListener('click', () => changeSetting('quality', b.dataset.q)));
 
   function requestWakeLock() {
@@ -3313,6 +3393,32 @@
       lock.addEventListener('release', () => { wakeLock = null; });
     }).catch(() => { /* экран может погаснуть, это не страшно */ });
   }
+
+  // ==================================================================
+  // Автоподстройка: если кадров мало, по шагу снижаем качество графики
+  // ==================================================================
+  const Perf = (function () {
+    let acc = 0, frames = 0, cooldown = 6;
+    return {
+      sample(dt) {
+        if (screen !== 'game' || !settings.autoQuality) { acc = 0; frames = 0; return; }
+        cooldown -= dt;
+        acc += dt; frames++;
+        if (acc < 4) return;
+        const fps = frames / acc;
+        acc = 0; frames = 0;
+        if (fps >= 34 || cooldown > 0) return;
+        cooldown = 10;
+        if (settings.quality === 'high') settings.quality = 'mid';
+        else if (settings.quality === 'mid') settings.quality = 'low';
+        else if (settings.shadows) settings.shadows = false;
+        else return;
+        writeJson(KEYS.settings, settings);
+        applySettings();
+        toast('Графика снижена для плавности', 'item');
+      },
+    };
+  })();
 
   // ==================================================================
   // Вступительная сцена: предыстория, рация, пробуждение у потухшего костра
@@ -3636,6 +3742,8 @@
     }
 
     if (screen === 'intro') Intro.cameraUpdate(); else updateCamera(dt, false, inMenu);
+    if (!inCave) { cullChunks(dt); stepGrass(screen === 'game' ? 3 : 6); }
+    Perf.sample(dt);
     updateLighting(inMenu ? 17.4 : screen === 'intro' ? Intro.hour() : undefined);
     if (screen === 'intro') Intro.fog();
     updateHud(dt);
@@ -3685,6 +3793,17 @@
       introNext() { Intro.next(); },
       zombie() { spawnZombieAt(P.x + Math.sin(P.face) * 2, P.z + Math.cos(P.face) * 2, !!inCave); },
       get zombies() { return zombies; },
+      breakdown() {
+        const out = {};
+        scene.traverseVisible((o) => {
+          if (!o.isMesh) return;
+          const g = o.geometry, tri = (g.index ? g.index.count : g.attributes.position.count) / 3, n = o.isInstancedMesh ? o.count : 1;
+          const key = (o.isInstancedMesh ? 'inst:' : '') + (g.type || 'geo') + (o.castShadow ? '+shadow' : '');
+          out[key] = (out[key] || 0) + Math.round(tri * n);
+        });
+        return JSON.stringify(Object.entries(out).sort((a, b) => b[1] - a[1]).slice(0, 12));
+      },
+      info() { const i = renderer.info.render; return { calls: i.calls, tris: i.triangles }; },
       camDist() { return camera.position.distanceTo(hero.g.position); },
       rockH(x, z) { return inCave ? caveRockH(x, z) : null; },
       pose(name, t) { playAnim(name); P.anim.t = t * P.anim.dur; P.anim.frozen = true; },
