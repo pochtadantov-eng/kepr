@@ -371,6 +371,34 @@
   #introNext { font-size: 11px; color: var(--muted); opacity: 0; transition: opacity 0.4s; }
   #introNext.show { opacity: 0.8; }
   @media (prefers-reduced-motion: reduce) { #intro .ibar, #introTitle, #introCaption { transition: none; } }
+  /* Экран телефона во время звонка */
+  #phoneUI {
+    position: fixed; z-index: 6; top: 50%; right: calc(18px + max(env(safe-area-inset-right, 0px), var(--cut-r, 0px)));
+    width: 132px; padding: 16px 12px 14px; border-radius: 22px; text-align: center; pointer-events: none;
+    background: linear-gradient(180deg, #1d2633, #0d1118); border: 2px solid #2c3442; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    opacity: 0; transform: translate(16px, -50%); transition: opacity 0.3s, transform 0.3s;
+  }
+  #phoneUI.show { opacity: 1; transform: translate(0, -50%); }
+  /* В игре — компактная полоска под заданием, чтобы не закрывать кнопки */
+  #phoneUI.mini {
+    top: calc(62px + max(env(safe-area-inset-top, 0px), var(--cut-t, 0px))); right: auto; left: 50%;
+    width: auto; flex-direction: row; gap: 9px; padding: 6px 14px 6px 6px; border-radius: 999px;
+    transform: translate(-50%, -8px);
+  }
+  #phoneUI.mini.show { transform: translate(-50%, 0); }
+  #phoneUI.mini .ph-ava { width: 30px; height: 30px; font-size: 14px; }
+  #phoneUI .ph-ava {
+    width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
+    background: #3a4a62; color: var(--ink); font-size: 20px; font-weight: 700;
+  }
+  #phoneUI.ring .ph-ava { animation: phRing 1s ease-in-out infinite; }
+  @keyframes phRing { 0%, 100% { box-shadow: 0 0 0 0 rgba(147, 224, 141, 0.5); } 50% { box-shadow: 0 0 0 9px rgba(147, 224, 141, 0); } }
+  #phName { font-size: 14px; font-weight: 700; color: var(--ink); }
+  #phStatus { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #phoneUI.live #phStatus { color: var(--good); }
+  #phoneUI.ended #phStatus { color: var(--hp); }
+  @media (prefers-reduced-motion: reduce) { #phoneUI, #phoneUI .ph-ava { transition: none; animation: none; } }
   #fade { position: fixed; inset: 0; z-index: 6; background: #000; opacity: 0; pointer-events: none; transition: opacity 0.35s; }
   #fade.on { opacity: 1; }
   #loading {
@@ -557,6 +585,7 @@
   </div>
 </div>
 
+<div id="phoneUI" aria-hidden="true"><div class="ph-ava" id="phAva"></div><b id="phName"></b><span id="phStatus"></span></div>
 <div id="intro" hidden>
   <div class="ibar top"></div>
   <div class="ibar bottom"></div>

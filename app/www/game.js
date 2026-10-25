@@ -6,8 +6,8 @@
   // Настройки игры
   // ==================================================================
   const CFG = {
-    dayLen: 150, nightLen: 100,
-    maxHunger: 100, maxThirst: 100, hungerDecay: 0.14, thirstDecay: 0.2,
+    dayLen: 240, nightLen: 150,
+    maxHunger: 100, maxThirst: 100, hungerDecay: 0.1, thirstDecay: 0.14,
     starveDmg: 3, regenThreshold: 50, regen: 0.6, berryFood: 20, drink: 35,
     flask: 4, flaskDrink: 30,
     playerSpeed: 6, swimSpeed: 0.55, jumpSpeed: 7.2, gravity: 22,
@@ -243,7 +243,56 @@
       },
       ring() { for (let k = 0; k < 2; k++) { tone({ freq: 440, dur: 0.38, gain: 0.07, delay: k * 0.5, type: 'triangle' }); tone({ freq: 480, dur: 0.38, gain: 0.06, delay: k * 0.5, type: 'triangle' }); } },
       whoosh() { noise({ dur: 1.4, type: 'bandpass', freq: 400, freqEnd: 1400, q: 0.6, gain: 0.12, attack: 0.5 }); },
+      // Машина: дверь, стартер, ключи
+      doorOpen(v) { const k = v || 1; noise({ dur: 0.06, type: 'highpass', freq: 2500, gain: 0.12 * k }); tone({ freq: 210, freqEnd: 150, dur: 0.08, type: 'triangle', gain: 0.08 * k }); },
+      doorClose(v) { const k = v || 1; noise({ dur: 0.12, type: 'lowpass', freq: 380, gain: 0.55 * k }); tone({ freq: 95, freqEnd: 55, dur: 0.14, gain: 0.3 * k }); noise({ dur: 0.04, type: 'highpass', freq: 2200, gain: 0.06 * k, delay: 0.02 }); },
+      starter() {
+        for (let i = 0; i < 6; i++) { tone({ freq: 70, freqEnd: 52, dur: 0.11, type: 'sawtooth', gain: 0.07, lowpass: 700, delay: i * 0.13 }); noise({ dur: 0.09, type: 'bandpass', freq: 900, q: 1.5, gain: 0.07, delay: i * 0.13 }); }
+        tone({ freq: 45, freqEnd: 90, dur: 0.5, type: 'sawtooth', gain: 0.1, lowpass: 600, delay: 0.8 });
+      },
+      keys() { for (let i = 0; i < 5; i++) tone({ freq: 3200 + Math.random() * 2200, dur: 0.05, gain: 0.03, delay: i * 0.06 + Math.random() * 0.03 }); },
+      // Телефон: гудки вызова и короткие гудки после сброса
+      ringback() { tone({ freq: 425, dur: 1.0, gain: 0.05, attack: 0.02 }); },
+      busy() { for (let i = 0; i < 4; i++) tone({ freq: 425, dur: 0.33, gain: 0.05, delay: i * 0.66, attack: 0.01 }); },
+      tap() { tone({ freq: 1500, dur: 0.03, gain: 0.04 }); },
+      laugh() { for (let i = 0; i < 6; i++) tone({ freq: 190 - i * 6, freqEnd: 150 - i * 6, dur: 0.12, type: 'sawtooth', gain: 0.05, lowpass: 1300, delay: 0.15 + i * 0.17 }); },
     };
+
+    // Ровный гул: мотор машины или генератор. level 0…1 — громкость, rpm 0…1 — обороты
+    const loops = {};
+    function loop(name, level, rpm) {
+      if (!ready) return;
+      let L = loops[name];
+      if (!L) {
+        if (level <= 0.001) return;
+        const g = ctx.createGain(); g.gain.value = 0.0001;
+        const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 2.5; f.frequency.value = 300;
+        const o1 = ctx.createOscillator(), o2 = ctx.createOscillator();
+        o1.type = 'sawtooth'; o2.type = 'square';
+        const n = ctx.createBufferSource(); n.buffer = noiseBuf; n.loop = true;
+        const nf = ctx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 260; nf.Q.value = 0.8;
+        const ng = ctx.createGain(); ng.gain.value = 0.35;
+        const o2g = ctx.createGain(); o2g.gain.value = 0.5;
+        o1.connect(f); o2.connect(o2g); o2g.connect(f); n.connect(nf); nf.connect(ng); ng.connect(f); f.connect(g); g.connect(sfx);
+        o1.start(); o2.start(); n.start();
+        L = loops[name] = { g, f, o1, o2, nf };
+      }
+      const t = ctx.currentTime, r = clamp(rpm || 0, 0, 1);
+      L.o1.frequency.setTargetAtTime(34 + r * 82, t, 0.09);
+      L.o2.frequency.setTargetAtTime(17 + r * 41, t, 0.09);
+      L.f.frequency.setTargetAtTime(240 + r * 1000, t, 0.12);
+      L.nf.frequency.setTargetAtTime(220 + r * 500, t, 0.12);
+      L.g.gain.setTargetAtTime(Math.max(0.0001, clamp(level, 0, 1) * 0.11), t, 0.12);
+    }
+    function loopStop(name) {
+      const L = loops[name];
+      if (!L) return;
+      delete loops[name];
+      const t = ctx.currentTime;
+      L.g.gain.cancelScheduledValues(t);
+      L.g.gain.setTargetAtTime(0.0001, t, 0.15);
+      for (const o of [L.o1, L.o2]) o.stop(t + 0.8);
+    }
 
     // Птицы: несколько разных голосов с разных сторон
     function bird() {
@@ -345,6 +394,8 @@
       ambient,
       pause(on) { if (ctx) (on ? ctx.suspend() : ctx.resume()).catch(() => {}); },
       play(name, a, b) { if (ready && LIB[name]) { try { LIB[name](a, b); } catch (e) { /* звук не критичен */ } } },
+      loop(name, level, rpm) { try { loop(name, level, rpm); } catch (e) { /* звук не критичен */ } },
+      loopStop(name) { try { loopStop(name); } catch (e) { /* звук не критичен */ } },
       setCave(on) {
         if (!ready) return;
         echoOut.gain.setTargetAtTime(on ? 0.35 : 0, ctx.currentTime, 0.1);
@@ -1176,6 +1227,7 @@
   const FACE = { white: std(0xf4f1ea, { roughness: 0.4 }), pupil: std(0x2a1f1a, { roughness: 0.3 }), mouth: std(0x6e2f2a) };
 
   // Человечек со скруглёнными частями: корпус, голова с лицом, руки с кистями, ноги в ботинках
+  const ARM_UP = 0.36, ARM_FORE = 0.36;
   function makeHuman(mats, kind) {
     const g = new THREE.Group();
     const rb = (w, h, d, r, mat, shadow) => {
@@ -1203,11 +1255,21 @@
     }
     at(rb(0.065, 0.085, 0.06, 0.025, mats.skin, false), 0, -0.03, 0.245, head);
 
+    // Рука: у людей плечо и предплечье сгибаются в локте, у зомби рука одним куском
     const limb = (parent, x, y, w, len, mat, endMat, endLen) => {
       const pivot = new THREE.Group(); pivot.position.set(x, y, 0);
-      const top = len - endLen + 0.04;
-      at(rb(w, top, w, w * 0.36, mat), 0, -top / 2, 0, pivot);
-      at(rb(w * 0.94, endLen, w * 0.94, w * 0.4, endMat), 0, -(len - endLen / 2), 0, pivot);
+      if (kind === 'zombie') {
+        const top = len - endLen + 0.04;
+        at(rb(w, top, w, w * 0.36, mat), 0, -top / 2, 0, pivot);
+        at(rb(w * 0.94, endLen, w * 0.94, w * 0.4, endMat), 0, -(len - endLen / 2), 0, pivot);
+      } else {
+        at(rb(w, ARM_UP + 0.06, w, w * 0.36, mat), 0, -(ARM_UP - 0.06) / 2, 0, pivot);
+        const fore = new THREE.Group(); fore.position.y = -ARM_UP; pivot.add(fore);
+        const sleeve = len - ARM_UP - endLen + 0.06;
+        at(rb(w * 0.97, sleeve, w * 0.97, w * 0.36, mat), 0, 0.04 - sleeve / 2, 0, fore);
+        at(rb(w * 0.94, endLen, w * 0.94, w * 0.4, endMat), 0, -(len - ARM_UP - endLen / 2), 0, fore);
+        pivot.userData.fore = fore;
+      }
       parent.add(pivot);
       return pivot;
     };
@@ -1224,6 +1286,8 @@
       armL: limb(upper, -0.43, 0.68, 0.22, 0.74, mats.arms || mats.skin, mats.skin, 0.2),
       armR: limb(upper, 0.43, 0.68, 0.22, 0.74, mats.armsR || mats.arms || mats.skin, mats.skin, 0.2),
     };
+    h.foreL = h.armL.userData.fore || null;
+    h.foreR = h.armR.userData.fore || null;
     if (kind === 'zombie') {
       // Рваная одежда: тёмные дыры и пятна на рубашке
       const rip = std(0x2a2420);
@@ -1256,12 +1320,18 @@
   })();
   // Кисть правой руки: в ней меч, топор, фляга или ягода
   const handR = new THREE.Group();
-  handR.position.set(0, -0.72, 0.02);
-  hero.armR.add(handR);
+  handR.position.set(0, -ARM_FORE, 0.02);
+  hero.foreR.add(handR);
   const phoneMesh = new THREE.Mesh(roundedBox(0.08, 0.16, 0.02, 0.015), std(0x15171a, { roughness: 0.3 }));
   phoneMesh.position.set(0, -0.04, 0.07);
   phoneMesh.visible = false;
   handR.add(phoneMesh);
+  // Светящийся экран телефона
+  const phoneScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.066, 0.13), new THREE.MeshBasicMaterial({ color: 0x8fbfff }));
+  phoneScreen.position.z = 0.0112;
+  phoneMesh.add(phoneScreen);
+  // Телефон в игре: t — сколько он в руке, out — сколько убирается
+  const phoneAnim = { t: 0, out: 0 };
   const MISHA_MATS = { skin: std(0xf2cfa8, { roughness: 0.7 }), shirt: std(0x2f5fa8), pants: std(0x3a3f4a), arms: std(0x2f5fa8), belt: std(0x22262e), shoes: std(0xf0f0f0), hair: std(0x6a4a2a) };
   const JACK_MATS = { skin: std(0xe0b48a, { roughness: 0.7 }), shirt: std(0x9a3b30), pants: std(0x3a3328), arms: std(0x9a3b30), belt: std(0x2a2019), shoes: std(0x3b2a1e), hair: std(0x5a3a22) };
   const MIA_MATS = { skin: std(0xf2cfb0, { roughness: 0.7 }), shirt: std(0x7a4a9a), pants: std(0x2a2a3a), arms: std(0x7a4a9a), belt: std(0x3a2a3a), shoes: std(0x4a2a2a), hair: std(0x2a1a12) };
@@ -1337,9 +1407,9 @@
   (function () {
     const frame = new THREE.Mesh(GEO.box, MAT.hilt); frame.scale.set(0.2, 0.06, 0.2); frame.position.y = 0.14; lanternMesh.add(frame);
     const glow = new THREE.Mesh(GEO.box, MAT.lantern); glow.scale.set(0.16, 0.22, 0.16); lanternMesh.add(glow);
-    lanternMesh.position.set(0, -0.82, 0.08);
+    lanternMesh.position.set(0, -0.46, 0.08);
     lanternMesh.visible = false;
-    hero.armL.add(lanternMesh);
+    hero.foreL.add(lanternMesh);
   })();
   scene.add(hero.g);
 
@@ -1358,11 +1428,74 @@
       h.armR.rotation.x = swing * 0.8;
     }
     h.armR.rotation.y = h.armR.rotation.z = h.armL.rotation.y = h.armL.rotation.z = 0;
+    if (h.foreL) {
+      // Локти чуть согнуты, при ходьбе сильнее
+      const bend = swim ? 0 : -0.12 - Math.abs(Math.sin(walkPhase)) * 0.35 * walkAmount;
+      h.foreL.rotation.set(bend, 0, 0); h.foreR.rotation.set(bend, 0, 0);
+    }
     h.upper.rotation.set(0, 0, 0);
     h.upper.position.z = 0;
     h.head.rotation.set(0, 0, 0);
     return Math.abs(Math.sin(walkPhase)) * 0.06 * walkAmount;
   }
+
+  // Двухзвенная рука: кисть тянется к точке в осях корпуса (upper), локоть уходит в сторону pole
+  const IK = { d: new THREE.Vector3(), p: new THREE.Vector3(), e: new THREE.Vector3(), w: new THREE.Vector3(), t: new THREE.Vector3(),
+    q: new THREE.Quaternion(), down: new THREE.Vector3(0, -1, 0), m: new THREE.Matrix4() };
+  function armIK(h, right, target, pole) {
+    const arm = right ? h.armR : h.armL, fore = right ? h.foreR : h.foreL;
+    if (!fore) return;
+    const S = arm.position, a = ARM_UP, b = ARM_FORE;
+    const d = IK.d.subVectors(target, S);
+    const dist = clamp(d.length(), 0.1, a + b - 0.003);
+    d.normalize();
+    const cosA = clamp((a * a + dist * dist - b * b) / (2 * a * dist), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
+    const p = IK.p.copy(pole).addScaledVector(d, -pole.dot(d)).normalize();
+    const e = IK.e.copy(S).addScaledVector(d, a * cosA).addScaledVector(p, a * sinA);
+    arm.quaternion.setFromUnitVectors(IK.down, IK.w.subVectors(e, S).normalize());
+    const t = IK.t.copy(S).addScaledVector(d, dist);
+    IK.w.subVectors(t, e).normalize().applyQuaternion(IK.q.copy(arm.quaternion).invert());
+    fore.quaternion.setFromUnitVectors(IK.down, IK.w);
+  }
+  // Повернуть кисть так, чтобы в осях корпуса она смотрела как quat
+  function orientHand(h, hand, quat) {
+    IK.q.copy(h.armR.quaternion).multiply(h.foreR.quaternion).invert();
+    hand.quaternion.copy(IK.q).multiply(quat);
+  }
+
+  // Телефон в руке: из кармана — к лицу (смотрит на экран) — к уху. Позы в осях корпуса.
+  const PH = (function () {
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    const basis = (zx, zy, zz, ux, uy, uz) => {
+      const z = V(zx, zy, zz).normalize(), up = V(ux, uy, uz);
+      const x = new THREE.Vector3().crossVectors(up, z).normalize(), y = new THREE.Vector3().crossVectors(z, x);
+      return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+    };
+    const poses = {
+      pocket: { pos: V(0.36, 0.1, 0.1), pole: V(0.2, 0, -1), q: basis(1, 0, 0, 0, -1, 0.3) },
+      face: { pos: V(0.1, 0.66, 0.42), pole: V(1, -1.2, -0.2), q: basis(-0.15, 0.55, -0.8, 0, 1, 0.4) },
+      ear: { pos: V(0.24, 0.98, 0.05), pole: V(0.9, -0.7, 0.55), q: basis(-1, 0, 0.1, 0, 0.75, -0.55) },
+    };
+    const pos = new THREE.Vector3(), pole = new THREE.Vector3(), q = new THREE.Quaternion();
+    return {
+      // Поза между a и b (k от 0 до 1); голова при взгляде на экран опускается
+      pose(h, hand, a, b, k) {
+        const A = poses[a], B = poses[b];
+        k = smooth(clamp(k, 0, 1));
+        pos.lerpVectors(A.pos, B.pos, k);
+        pole.lerpVectors(A.pole, B.pole, k);
+        q.copy(A.q).slerp(B.q, k);
+        // Дуга вперёд, чтобы рука не проходила сквозь тело
+        pos.z += Math.sin(Math.PI * k) * 0.12;
+        armIK(h, true, pos, pole);
+        orientHand(h, hand, q);
+        const look = (a === 'face' ? 1 - k : 0) + (b === 'face' ? k : 0);
+        h.head.rotation.x = Math.max(h.head.rotation.x, look * 0.38);
+        const ear = (a === 'ear' ? 1 - k : 0) + (b === 'ear' ? k : 0);
+        h.head.rotation.z = -ear * 0.12;
+      },
+    };
+  })();
 
   // ==================================================================
   // Анимации героя: каждая поза — функция от времени t (0…1)
@@ -1481,8 +1614,23 @@
   const animPose = { tilt: 0, dy: 0, lunge: 0 };
   function applyAnim() {
     animPose.tilt = 0; animPose.dy = 0; animPose.lunge = 0;
-    if (P.anim) ANIM[P.anim.name].pose(clamp(P.anim.t / P.anim.dur, 0, 1), hero, animPose);
-    handR.rotation.x = animPose.tilt;
+    if (P.anim) {
+      // Анимации рассчитаны на прямую руку
+      hero.foreL.rotation.set(0, 0, 0); hero.foreR.rotation.set(0, 0, 0);
+      ANIM[P.anim.name].pose(clamp(P.anim.t / P.anim.dur, 0, 1), hero, animPose);
+    }
+    handR.rotation.set(animPose.tilt, 0, 0);
+  }
+
+  // Телефон в игре: достать и посмотреть, кто звонит, поднести к уху, после разговора убрать
+  function phonePoseGame(dt) {
+    const A = phoneAnim;
+    if (P.phone) { A.t += dt; A.out = 0; }
+    else if (A.t > 0) { A.out += dt; if (A.out > 0.7) { A.t = 0; A.out = 0; } }
+    if (A.t <= 0 || P.anim) return;
+    if (!P.phone) PH.pose(hero, handR, 'ear', 'pocket', A.out / 0.7);
+    else if (A.t < 2.2) PH.pose(hero, handR, 'pocket', 'face', A.t / 0.7);
+    else PH.pose(hero, handR, 'face', 'ear', (A.t - 2.2) / 0.7);
   }
 
   // ==================================================================
@@ -1558,10 +1706,10 @@
     clearWorld();
     Object.keys(P).forEach((k) => delete P[k]);
     Object.assign(P, freshPlayer());
-    // Игра начинается вечером первого дня, как в сценарии
-    Object.assign(W, { day: 1, night: false, t: CFG.dayLen - 50, toSpawn: 0, spawnT: 0, warned: false });
+    // Игра начинается с первой ночи, сразу после вступления (около 18:40)
+    Object.assign(W, { day: 1, night: true, t: CFG.nightLen * 0.055, toSpawn: 0, spawnT: 0, warned: false });
     Level.applyStory();
-    Say.clear();
+    Say.clear(); PhoneUI.hide(); phoneAnim.t = phoneAnim.out = 0;
     refreshEquipment();
     hero.g.rotation.set(0, 0, 0);
     camYaw = 0.6;
@@ -1579,7 +1727,7 @@
     bottleMesh.userData.water.visible = P.flask > 0 || (P.anim && P.anim.name === 'fill' && P.anim.fired);
     berryMesh.visible = prop === 'berry' && P.anim && P.anim.t / P.anim.dur > 0.18 && !P.anim.fired;
     lanternMesh.visible = !!P.lantern;
-    phoneMesh.visible = prop === 'phone';
+    phoneMesh.visible = prop === 'phone' || (!P.anim && phoneAnim.t > 0);
   }
 
   // ==================================================================
@@ -2752,6 +2900,7 @@
   }
 
   function hitZombie(z, dmg) {
+    z.dormant = false;
     z.hp -= dmg;
     z.hitT = 0.14;
     Sound.play('hit');
@@ -2768,7 +2917,7 @@
   }
 
   function burnZombie(z) {
-    if (z.dead || z.burn || z.cave) return;
+    if (z.dead || z.burn || z.cave || z.dormant) return;
     z.burn = true;
     z.burnT = -rand(0, 1.5);
     z.bar.g.visible = false;
@@ -2809,6 +2958,7 @@
           if (z.burnT > 1.8) { removeZombie(z); continue; }
         }
       }
+      if (z.dormant) { Level.dormantPose(z, dt); continue; }
 
       let dx = P.x - z.x, dz = P.z - z.z;
       const d = Math.hypot(dx, dz) || 1;
@@ -2830,6 +2980,7 @@
           if (best < myD) { dx = bx; dz = bz; }
         }
       }
+      if (chase && !z.cave) { const st = Level.steer(z); if (st) { dx = st.x - z.x; dz = st.z - z.z; } }
       if (chase) {
         const dd = Math.hypot(dx, dz) || 1;
         const swim = !z.cave && getHeight(z.x, z.z) < WATER - SWIM_DEPTH;
@@ -3455,7 +3606,11 @@
   // Уровень 1 «Лес»: наш лагерь, большая река со старым мостом, лагерь школьных сборов
   // ==================================================================
   const LV = {
-    riverX: 58, riverW: 18, riverAmp: 7, bridgeZ: 2, deckH: 3.4, bridgeWood: 12,
+    riverX: 58, riverW: 18, riverAmp: 7, bridgeZ: 2, deckH: 3.4, bridgeWood: 20, bridgeStone: 8,
+    // Зарядка аккумулятора от генератора: секунды работы рядом с игроком, шум зовёт тварей
+    chargeTime: 160, chargeNear: 45, noiseEvery: 9, noiseMax: 5,
+    // Ремонт машины: секунды работы рядом с ней, стук тоже зовёт тварей
+    repairTime: 45, repairNear: 8,
     camp: { x: 125, z: 4, hw: 36, hd: 30 },
     tent: { x: -1.5, z: -7.5, rot: 0.25 },
     fire: { x: 1.6, z: 0.8 },
@@ -3473,7 +3628,8 @@
     wheel: 'Колесо',
     fuel: 'Канистра бензина',
   };
-  const freshStory = () => ({ said: {}, momCalled: false, bridge: false, carSeen: false, parts: {}, key: false, opened: {}, skladOpen: false, levelDone: false });
+  const freshStory = () => ({ said: {}, momCalled: false, bridge: false, carSeen: false, parts: {}, key: false, opened: {}, skladOpen: false, levelDone: false,
+    bat: '', gas: false, charge: 0, keyDrop: null, sleepers: {}, skladTried: false, repairing: false, repair: 0 });
 
   // Все реплики уровня 1 (номера совпадают со сценарием и именами голосовых файлов)
   const LINES = {
@@ -3502,13 +3658,19 @@
     'L1-21': ['Папа', 'Без Миши я никуда не поеду. (звонок обрывается) Мам? Мама!'],
     'L1-22': ['Папа', 'Никого… Вещи брошены, будто все разом убежали.'],
     'L1-23': ['Папа', 'Машина. Ни аккумулятора, ни колеса, бак пустой. Ну хоть что-то.'],
-    'L1-24': ['Папа', 'Ключ с биркой «Склад». Пригодится.'],
+    'L1-24': ['Папа', 'У него на шее ключ с биркой «Склад». Прости, парень.'],
     'L1-25': ['Папа', 'Всё есть. Теперь собрать её.'],
     'L1-26': ['Папа', 'Эй! Вы из лагеря? Вы не видели парня? Шестнадцать лет, в синей куртке…'],
     'L1-27': ['Папа', 'А-а! Ты что творишь?! Отпусти!'],
     'L1-28': ['Папа', 'Да что с тобой такое?.. Это не человек…'],
     'L1-29': ['Папа', 'Ну давай… давай!'],
     'L1-30': ['Папа', 'Держись, Миша. Я тебя найду. И Джека тоже.'],
+    'L1-32': ['Папа', 'Аккумулятор совсем сел. Может, у них тут есть генератор?'],
+    'L1-33': ['Папа', 'Завёлся! Только грохочет на весь лес… Надо быть начеку.'],
+    'L1-34': ['Папа', 'Зарядился. Одной деталью меньше.'],
+    'L1-35': ['Папа', 'Заперто. Ключ, наверное, у кого-то из вожатых.'],
+    'L1-36': ['Папа', 'Тихо… Они спят? Лучше их не будить.'],
+    'L1-37': ['Папа', 'Так… аккумулятор на место, колесо… Только бы успеть.'],
   };
 
   // Озвучка: когда появятся файлы voice/<номер>.m4a, их имена перечисляются здесь
@@ -3520,6 +3682,26 @@
       return 0;
     },
   };
+
+  // Экран телефона: кто звонит и сколько идёт разговор
+  const PhoneUI = (function () {
+    const root = $('phoneUI'), ava = $('phAva'), name = $('phName'), status = $('phStatus');
+    let live = -1, hideT = 0;
+    return {
+      // mode: ring — звонит, live — идёт разговор, ended — звонок закончился
+      show(who, text, mode) {
+        root.className = 'show ' + (mode || '') + (screen === 'game' ? ' mini' : '');
+        ava.textContent = who[0]; name.textContent = who; status.textContent = text || '00:00';
+        live = mode === 'live' ? 0 : -1;
+        hideT = mode === 'ended' ? 2.4 : 0;
+      },
+      hide() { root.className = ''; live = -1; hideT = 0; },
+      update(dt) {
+        if (live >= 0) { live += dt; status.textContent = fmtTime(live).padStart(5, '0'); }
+        if (hideT > 0) { hideT -= dt; if (hideT <= 0) root.classList.remove('show'); }
+      },
+    };
+  })();
 
   // Субтитры во время игры: реплики идут по очереди, игра не останавливается
   const Say = (function () {
@@ -3602,15 +3784,24 @@
   ];
   // Сундуки: где стоят и что в них
   const CHESTS = [
-    { id: 'c-guard', b: 'guard', dx: 0.9, dz: -0.9, part: 'battery', items: { berry: 2 } },
-    { id: 'c-vozh', b: 'vozh', dx: -1.2, dz: 1.2, part: 'wires', key: true, items: { berry: 2 } },
-    { id: 'c-sklad', b: 'sklad', dx: 1.8, dz: 1.2, part: 'wheel', items: { stone: 4 } },
-    { id: 'c-gen', b: 'gen', dx: 0.6, dz: 0.7, part: 'fuel', items: {} },
+    { id: 'c-guard', b: 'guard', dx: 0.9, dz: -0.9, bat: true, items: { berry: 2 } },
+    { id: 'c-vozh', b: 'vozh', dx: -1.2, dz: 1.2, part: 'wires', items: { berry: 2 } },
+    { id: 'c-sklad', b: 'sklad', dx: 1.8, dz: 1.2, part: 'wheel', also: 'fuel', items: { stone: 4 } },
+    { id: 'c-gen', b: 'gen', dx: 0.6, dz: 0.7, gas: true, items: {} },
     { id: 'c-canteen', b: 'canteen', dx: 4.5, dz: -2.5, items: { berry: 6 } },
     { id: 'c-cabin2', b: 'cabin2', dx: 1.4, dz: 1.2, items: { wood: 4, berry: 2 } },
     { id: 'c-cabin3', b: 'cabin3', dx: -1.4, dz: 1.2, items: { stone: 3, berry: 3 } },
   ];
   const CAR = { dx: -29, dz: 11, rot: -Math.PI / 2 };
+  // Заражённые из бригады спят в домах лагеря; просыпаются от шагов рядом, удара или шума генератора
+  const SLEEPERS = [
+    { id: 's-guard', b: 'guard', dx: -0.9, dz: 0.5 },
+    { id: 's-can1', b: 'canteen', dx: -3.2, dz: -1.6 },
+    { id: 's-can2', b: 'canteen', dx: 3.6, dz: 1.4 },
+    { id: 's-cab2', b: 'cabin2', dx: 0.2, dz: -0.6 },
+    { id: 's-cab3', b: 'cabin3', dx: 0.9, dz: 0.2 },
+    { id: 's-sklad', b: 'sklad', dx: -1.2, dz: -1.0 },
+  ];
 
   function buildMask() {
     const half = riverHalf(), be = bridgeEnds();
@@ -3635,17 +3826,52 @@
 
   // Форма земли под уровень: русло реки, ровный лагерь, дорога без воды
   const bridgeStrip = [];
+  // Ближайшая точка дороги в город: расстояние до неё и сколько метров от начала дороги
+  function roadProj(x, z) {
+    const pts = LV.road;
+    let best = 1e9, bs = 0, s0 = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const ax = pts[i][0], az = pts[i][1], dx = pts[i + 1][0] - ax, dz = pts[i + 1][1] - az, l = Math.hypot(dx, dz);
+      const t = clamp(((x - ax) * dx + (z - az) * dz) / (l * l), 0, 1);
+      const d = Math.hypot(x - (ax + dx * t), z - (az + dz * t));
+      if (d < best) { best = d; bs = s0 + t * l; }
+      s0 += l;
+    }
+    return { d: best, s: bs };
+  }
+  // Профиль дороги: сглаженная высота земли вдоль неё с ограничением уклона, как у насыпи и выемки
+  function roadProfile() {
+    const pts = LV.road, ds = 2, raw = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+      for (let d = 0; d < l; d += ds) { const t = d / l; raw.push(getHeight(lerp(pts[i][0], pts[i + 1][0], t), lerp(pts[i][1], pts[i + 1][1], t))); }
+    }
+    let h = raw;
+    for (let pass = 0; pass < 3; pass++) {
+      const n = [];
+      for (let k = 0; k < h.length; k++) { let sum = 0, c = 0; for (let j = Math.max(0, k - 8); j <= Math.min(h.length - 1, k + 8); j++) { sum += h[j]; c++; } n.push(sum / c); }
+      h = n;
+    }
+    const m = 0.09 * ds;
+    for (let k = 0; k < h.length; k++) h[k] = Math.max(2.4, h[k]);
+    for (let k = 1; k < h.length; k++) h[k] = clamp(h[k], h[k - 1] - m, h[k - 1] + m);
+    for (let k = h.length - 2; k >= 0; k--) h[k] = clamp(h[k], h[k + 1] - m, h[k + 1] + m);
+    return (s) => { const f = clamp(s / ds, 0, h.length - 1.001), k = Math.floor(f); return lerp(h[k], h[k + 1], f - k); };
+  }
   function shapeTerrain() {
     const half = riverHalf(), C = LV.camp;
+    const road = roadProfile();
     for (let r = 0; r < N1; r++) for (let c = 0; c < N1; c++) {
       const i = r * N1 + c, x = -HALF + c * STEP, z = -HALF + r * STEP;
       let h = heights[i];
       // Площадка лагеря сборов
       const out = Math.max(Math.abs(x - C.x) - C.hw, Math.abs(z - C.z) - C.hd, 0);
       if (out < 16) h = lerp(3.6 + (vnoise(x * 0.05, z * 0.05, 7) - 0.5) * 0.6, h, smoothstep(0, 16, out));
-      // Дорога: поднимаем над водой
-      const rd = roadDist(x, z);
-      if (rd < 6) h = lerp(Math.max(h, 2.4), h, smoothstep(3, 6, rd));
+      // Дорога в город: ровное полотно по профилю, по краям — откосы
+      const rp = roadProj(x, z);
+      if (rp.d < 9) h = lerp(road(rp.s), h, smoothstep(3.4, 9, rp.d));
+      // Тропа к воротам лагеря: поднимаем над водой
+      else { const rd = roadDist(x, z); if (rd < 6) h = lerp(Math.max(h, 2.4), h, smoothstep(3, 6, rd)); }
       // Подходы к мосту на уровне настила
       const d = Math.abs(x - riverCX(z)), bz = Math.abs(z - LV.bridgeZ);
       if (bz < 7 && d > half - 1 && d < half + 14) h = lerp(LV.deckH - 0.25, h, Math.max(smoothstep(3, 7, bz), smoothstep(half + 8, half + 14, d)));
@@ -3692,37 +3918,271 @@
     m.receiveShadow = true;
     return m;
   }
+  // Машина: кузов на подвеске, колёса крутятся, передние поворачиваются, двери открываются.
+  // Перед машины смотрит по оси +x, правый бок — по +z.
+  const CAR_WB = 2.7, CAR_TRACK = 1.66, WHEEL_R = 0.38;
+  let beamTex = null, poolTex = null;
+  function carTextures() {
+    if (beamTex) return;
+    // Луч фары: яркий у фары и гаснет к концу
+    let c = document.createElement('canvas'); c.width = 4; c.height = 64;
+    let g = c.getContext('2d'), grd = g.createLinearGradient(0, 0, 0, 64);
+    grd.addColorStop(0, 'rgba(255,255,255,0.9)'); grd.addColorStop(0.4, 'rgba(255,255,255,0.35)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd; g.fillRect(0, 0, 4, 64);
+    beamTex = new THREE.CanvasTexture(c);
+    // Пятно света на земле
+    c = document.createElement('canvas'); c.width = c.height = 64;
+    g = c.getContext('2d'); grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, 'rgba(255,255,255,0.8)'); grd.addColorStop(0.5, 'rgba(255,255,255,0.3)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+    poolTex = new THREE.CanvasTexture(c);
+  }
   function makeCar(color, broken) {
+    carTextures();
     const g = new THREE.Group();
-    const paint = std(color, { roughness: 0.45, metalness: 0.15 }), glass = std(0x1d2a33, { roughness: 0.15, metalness: 0.3 });
-    const dark = std(0x1a1a1a, { roughness: 0.9 }), chrome = std(0xb8bcc0, { roughness: 0.3, metalness: 0.6 });
-    const body = rbMesh(4.3, 0.85, 1.9, 0.28, paint); body.position.y = 0.78; g.add(body);
-    const cabin = rbMesh(2.3, 0.78, 1.72, 0.3, paint); cabin.position.set(-0.25, 1.52, 0); g.add(cabin);
-    const win = rbMesh(2.32, 0.5, 1.74, 0.2, glass, false); win.position.set(-0.25, 1.56, 0); win.scale.set(0.98, 1, 1.01); g.add(win);
-    for (const s of [-1, 1]) {
-      const lamp = rbMesh(0.08, 0.2, 0.42, 0.05, new THREE.MeshBasicMaterial({ color: broken ? 0x555544 : 0xfff3c0 }), false);
-      lamp.position.set(2.15, 0.85, s * 0.6); g.add(lamp);
-      const tail = rbMesh(0.08, 0.18, 0.36, 0.05, new THREE.MeshBasicMaterial({ color: 0x8a1a1a }), false);
-      tail.position.set(-2.15, 0.88, s * 0.62); g.add(tail);
+    g.rotation.order = 'YZX';
+    const body = new THREE.Group();
+    g.add(body);
+    const paint = std(color, { roughness: 0.4, metalness: 0.2 }), glass = std(0x1b2731, { roughness: 0.1, metalness: 0.4 });
+    const black = std(0x161616, { roughness: 0.9 }), chrome = std(0xb8bcc0, { roughness: 0.3, metalness: 0.6 }), tyre = std(0x1e1e1e, { roughness: 0.95 });
+    const add = (m, x, y, z, parent) => { m.position.set(x, y, z); (parent || body).add(m); return m; };
+    // Кузов: низ, капот и багажник чуть ниже линии окон
+    add(rbMesh(4.4, 0.58, 1.84, 0.24, paint), 0, 0.74, 0);
+    add(rbMesh(1.3, 0.12, 1.74, 0.06, paint), 1.5, 1.04, 0);
+    add(rbMesh(0.9, 0.12, 1.74, 0.06, paint), -1.72, 1.06, 0);
+    // Арки колёс и пороги
+    for (const wx of [CAR_WB / 2, -CAR_WB / 2]) add(rbMesh(1.04, 0.36, 1.88, 0.16, black), wx, 0.62, 0);
+    for (const sz of [-1, 1]) add(rbMesh(3.9, 0.12, 0.06, 0.03, black), 0, 0.47, sz * 0.93);
+    // Салон: стёкла, крыша, стойки
+    add(rbMesh(2.16, 0.6, 1.6, 0.18, glass), -0.38, 1.4, 0);
+    add(rbMesh(2.0, 0.1, 1.66, 0.05, paint), -0.42, 1.74, 0);
+    for (const px of [0.64, -0.36, -1.4]) add(rbMesh(0.1, 0.62, 1.68, 0.03, paint), px, 1.42, 0);
+    // Перед и зад
+    add(rbMesh(0.06, 0.22, 0.86, 0.03, black), 2.21, 0.8, 0);
+    for (let k = -2; k <= 2; k++) add(rbMesh(0.02, 0.18, 0.02, 0.01, chrome), 2.24, 0.8, k * 0.16);
+    add(rbMesh(0.22, 0.2, 1.9, 0.08, chrome), 2.24, 0.5, 0);
+    add(rbMesh(0.22, 0.2, 1.9, 0.08, chrome), -2.24, 0.52, 0);
+    const plate = std(0xe8e8e0, { roughness: 0.6 });
+    add(rbMesh(0.03, 0.12, 0.46, 0.01, plate), 2.36, 0.52, 0);
+    add(rbMesh(0.03, 0.12, 0.46, 0.01, plate), -2.36, 0.62, 0);
+    for (const sz of [-1, 1]) add(rbMesh(0.14, 0.12, 0.2, 0.04, paint), 0.58, 1.18, sz * 1.0);
+    // Фары и фонари
+    const headMat = new THREE.MeshBasicMaterial({ color: 0x4a4944 });
+    const tailMat = new THREE.MeshBasicMaterial({ color: 0x5a1010 });
+    const revMat = new THREE.MeshBasicMaterial({ color: 0x8a8a88 });
+    for (const sz of [-1, 1]) {
+      add(rbMesh(0.06, 0.18, 0.36, 0.05, headMat, false), 2.2, 0.88, sz * 0.62);
+      add(rbMesh(0.06, 0.16, 0.34, 0.05, tailMat, false), -2.21, 0.92, sz * 0.66);
+      add(rbMesh(0.06, 0.08, 0.14, 0.02, revMat, false), -2.21, 0.92, sz * 0.38);
     }
-    const bumper = rbMesh(0.2, 0.22, 1.95, 0.08, chrome); bumper.position.set(2.18, 0.5, 0); g.add(bumper);
+    // Двери на петлях спереди: правые открываются в +z, левые в −z
+    const doors = [];
+    for (const [hx, sz] of [[0.64, 1], [0.64, -1], [-0.36, 1], [-0.36, -1]]) {
+      const pivot = new THREE.Group(); pivot.position.set(hx, 0, sz * 0.93);
+      add(rbMesh(1.0, 0.6, 0.06, 0.03, paint), -0.5, 0.75, 0, pivot);
+      add(rbMesh(0.9, 0.5, 0.04, 0.04, glass), -0.5, 1.36, 0, pivot);
+      add(rbMesh(0.16, 0.04, 0.03, 0.01, chrome), -0.84, 0.94, sz * 0.035, pivot);
+      body.add(pivot);
+      pivot.userData = { side: sz, open: 0, target: 0 };
+      doors.push(pivot);
+    }
+    // Колёса: поворот (у передних) → вращение → шина, диск и спицы
     const wheels = [];
-    const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
-    for (const [wx, wz] of [[1.35, 0.92], [1.35, -0.92], [-1.35, 0.92], [-1.35, -0.92]]) {
-      const w = new THREE.Mesh(wheelGeo, dark); w.rotation.x = Math.PI / 2; w.position.set(wx, 0.4, wz); w.castShadow = true; g.add(w);
-      const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.32, 10), chrome); hub.rotation.x = Math.PI / 2; hub.position.copy(w.position); g.add(hub);
-      wheels.push([w, hub]);
+    const tyreGeo = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 0.3, 18), rimGeo = new THREE.CylinderGeometry(0.21, 0.21, 0.32, 12);
+    for (const [wx, sz] of [[CAR_WB / 2, -1], [CAR_WB / 2, 1], [-CAR_WB / 2, -1], [-CAR_WB / 2, 1]]) {
+      const root = new THREE.Group(); root.position.set(wx, WHEEL_R, sz * CAR_TRACK / 2); g.add(root);
+      const steer = new THREE.Group(); root.add(steer);
+      const spin = new THREE.Group(); steer.add(spin);
+      const t = new THREE.Mesh(tyreGeo, tyre); t.rotation.x = Math.PI / 2; t.castShadow = true; spin.add(t);
+      const r = new THREE.Mesh(rimGeo, chrome); r.rotation.x = Math.PI / 2; spin.add(r);
+      for (let k = 0; k < 3; k++) { const sp = rbMesh(0.4, 0.06, 0.34, 0.02, black, false); sp.rotation.z = k * Math.PI / 3; spin.add(sp); }
+      wheels.push({ root, steer, spin, front: wx > 0 });
     }
+    // Свет фар: прозрачные лучи и пятно на земле, без настоящих источников света
+    const lights = new THREE.Group();
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0xfff0c8, map: beamTex, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const beamLen = 11, ang = Math.PI / 2 - 0.08;
+    for (const sz of [-1, 1]) {
+      const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 1.9, beamLen, 14, 1, true), beamMat);
+      cone.rotation.z = ang;
+      cone.position.set(2.24 + Math.sin(ang) * beamLen / 2, 0.88 - Math.cos(ang) * beamLen / 2, sz * 0.62);
+      lights.add(cone);
+    }
+    const glowMat = new THREE.SpriteMaterial({ map: glowTexture(), color: 0xfff2d0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+    for (const sz of [-1, 1]) { const sp = new THREE.Sprite(glowMat); sp.scale.set(1.1, 1.1, 1); sp.position.set(2.3, 0.88, sz * 0.62); lights.add(sp); }
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(9, 5.5), new THREE.MeshBasicMaterial({ color: 0xffe6b0, map: poolTex, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
+    pool.rotation.x = -Math.PI / 2; pool.position.set(7.2, 0.12, 0);
+    lights.add(pool);
+    lights.visible = false;
+    body.add(lights);
+    const brakeGlow = new THREE.SpriteMaterial({ map: glowTexture(), color: 0xff3020, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+    for (const sz of [-1, 1]) { const sp = new THREE.Sprite(brakeGlow); sp.scale.set(0.9, 0.9, 1); sp.position.set(-2.3, 0.92, sz * 0.66); body.add(sp); }
+
     let hood = null;
     if (broken) {
-      // Капот открыт, переднего левого колеса нет, машина присела на этот угол
-      hood = rbMesh(1.3, 0.08, 1.8, 0.04, paint); hood.position.set(1.55, 1.25, 0); hood.rotation.z = 0.9; g.add(hood);
-      wheels[0][0].visible = wheels[0][1].visible = false;
-      g.userData.tilt = 0.06;
+      // Капот поднят, переднего левого колеса нет, машина присела на этот угол
+      hood = rbMesh(1.3, 0.08, 1.76, 0.04, paint); hood.position.set(1.42, 1.5, 0); hood.rotation.z = 0.95; body.add(hood);
+      wheels[0].root.visible = false;
+      body.rotation.x = -0.035; body.rotation.z = -0.03; body.position.y = -0.08;
     }
-    g.userData.wheels = wheels;
-    g.userData.hood = hood;
+    g.userData = { body, wheels, doors, lights, headMat, tailMat, revMat, brakeGlow, hood, broken };
     return g;
+  }
+
+  // Состояние машины в кадре: фары, стоп-сигналы, двери (плавно)
+  function carLights(car, on) {
+    const u = car.userData;
+    u.lights.visible = on;
+    u.headMat.color.setHex(on ? 0xfff6d8 : 0x4a4944);
+  }
+  function carDoor(car, i, open) { car.userData.doors[i].userData.target = open ? 1 : 0; }
+  function updateCarDoors(car, dt) {
+    for (const d of car.userData.doors) {
+      const u = d.userData;
+      const was = u.open;
+      u.open += clamp(u.target - u.open, -dt * 2.4, dt * 2.4);
+      // Дверь распахивается быстро и чуть пружинит, захлопывается со стуком
+      d.rotation.y = u.side * 1.05 * smooth(u.open);
+      if (was > 0 && u.open === 0) Sound.play('doorClose', camVol(d, 40));
+      if (was === 0 && u.open > 0) Sound.play('doorOpen', camVol(d, 30));
+    }
+  }
+  const _cv = new THREE.Vector3();
+  function camVol(obj, range) { obj.getWorldPosition(_cv); return clamp(1 - _cv.distanceTo(camera.position) / range, 0, 1); }
+
+  // Езда по маршруту как в жизни: разгон, торможение перед поворотом и остановкой, руль, крен и клевок кузова.
+  // legs: [{ pts: [[x, z], ...], rev: задом, vmax, wait: пауза после }]
+  function makeDrive(car, legs) {
+    const D = {
+      car, legs: legs.map((l) => {
+        const curve = new THREE.CatmullRomCurve3(l.pts.map(([x, z]) => new THREE.Vector3(x, 0, z)), false, 'centripetal');
+        return Object.assign({ vmax: 9, acc: l.rev ? 1.6 : 2.6, dec: 3.6, wait: 0 }, l, { curve, len: curve.getLength() });
+      }),
+      leg: 0, s: 0, v: 0, a: 0, waitT: 0, done: false, engine: false, steer: 0, yaw: null, yawRate: 0,
+      pitch: 0, pitchV: 0, roll: 0, rollV: 0, spin: 0,
+    };
+    placeCarOnPath(D, 0);
+    return D;
+  }
+  const _tan = new THREE.Vector3(), _tan2 = new THREE.Vector3(), _pt = new THREE.Vector3();
+  function legFrame(L, s) {
+    const u = clamp(s / L.len, 0, 1);
+    L.curve.getPointAt(u, _pt);
+    L.curve.getTangentAt(u, _tan);
+    // Кривизна со знаком: насколько быстро поворачивает касательная (влево — плюс)
+    const ds = Math.min(1.5, L.len * 0.5);
+    L.curve.getTangentAt(clamp((s + ds) / L.len, 0, 1), _tan2);
+    const a1 = Math.atan2(-_tan.z, _tan.x), a2 = Math.atan2(-_tan2.z, _tan2.x);
+    const kappa = (((a2 - a1 + Math.PI) % TAU + TAU) % TAU - Math.PI) / ds;
+    return { x: _pt.x, z: _pt.z, yaw: a1 + (L.rev ? Math.PI : 0), kappa };
+  }
+  function placeCarOnPath(D, dt) {
+    const L = D.legs[Math.min(D.leg, D.legs.length - 1)];
+    const f = legFrame(L, D.s);
+    const car = D.car, u = car.userData;
+    if (D.yaw === null) D.yaw = f.yaw;
+    const newYaw = D.yaw + ((((f.yaw - D.yaw + Math.PI) % TAU) + TAU) % TAU - Math.PI);
+    D.yawRate = dt > 0 ? (newYaw - D.yaw) / dt : 0;
+    D.yaw = newYaw;
+    // Колёса касаются земли: высота и наклон по четырём точкам
+    const c = Math.cos(D.yaw), sn = Math.sin(D.yaw);
+    const hAt = (lx, lz) => getHeight(f.x + c * lx + sn * lz, f.z - sn * lx + c * lz);
+    const hf = (hAt(CAR_WB / 2, -0.8) + hAt(CAR_WB / 2, 0.8)) / 2, hr = (hAt(-CAR_WB / 2, -0.8) + hAt(-CAR_WB / 2, 0.8)) / 2;
+    const hl = (hAt(1.3, -0.8) + hAt(-1.3, -0.8)) / 2, hR = (hAt(1.3, 0.8) + hAt(-1.3, 0.8)) / 2;
+    car.position.set(f.x, (hf + hr) / 2, f.z);
+    car.rotation.set(Math.atan2(hR - hl, CAR_TRACK) * -1, D.yaw, Math.atan2(hf - hr, CAR_WB));
+    // Руль: угол передних колёс по кривизне (задом — наоборот)
+    const vSigned = L.rev ? -D.v : D.v;
+    const want = clamp(Math.atan(CAR_WB * f.kappa) * (L.rev ? -1 : 1), -0.6, 0.6);
+    D.steer += clamp(want - D.steer, -dt * 1.8, dt * 1.8);
+    D.spin -= vSigned * dt / WHEEL_R;
+    for (const w of u.wheels) { if (w.front) w.steer.rotation.y = D.steer; w.spin.rotation.z = D.spin; }
+    // Кузов на пружинах: приседает при разгоне, клюёт при торможении, кренится наружу в повороте
+    const lat = vSigned * D.yawRate;
+    const pitchT = clamp(D.a * (L.rev ? -1 : 1) * 0.011, -0.06, 0.05), rollT = clamp(lat * 0.016, -0.07, 0.07);
+    D.pitchV += ((pitchT - D.pitch) * 70 - D.pitchV * 7) * dt; D.pitch += D.pitchV * dt;
+    D.rollV += ((rollT - D.roll) * 60 - D.rollV * 6) * dt; D.roll += D.rollV * dt;
+    const idle = D.engine ? Math.sin(W.clock * 70) * 0.004 : 0;
+    u.body.rotation.set(D.roll, 0, D.pitch);
+    u.body.position.y = idle + Math.abs(D.v) * Math.sin(W.clock * 9 + D.s) * 0.004;
+    // Стоп-сигналы: тормоз или стоит с работающим мотором; белые — задний ход
+    const braking = D.engine && (D.a < -0.4 || D.v < 0.05);
+    u.tailMat.color.setHex(braking ? 0xff2a1a : u.lights.visible ? 0xa01a14 : 0x5a1010);
+    u.brakeGlow.opacity = braking ? 0.8 : u.lights.visible ? 0.3 : 0;
+    u.revMat.color.setHex(D.engine && L.rev ? 0xffffff : 0x8a8a88);
+  }
+  function updateDrive(D, dt) {
+    if (!D || D.done) return;
+    updateCarDoors(D.car, dt);
+    if (!D.engine || D.hold) { D.a = 0; D.v = 0; placeCarOnPath(D, dt); return; }
+    const L = D.legs[D.leg];
+    if (D.waitT > 0) {
+      D.waitT -= dt; D.a = 0;
+      if (D.waitT <= 0) { D.leg++; D.s = 0; if (D.leg >= D.legs.length) { D.leg = D.legs.length - 1; D.s = L.len; D.done = true; } }
+      placeCarOnPath(D, dt);
+      return;
+    }
+    // Нужная скорость: не больше предела, медленнее в повороте, к концу отрезка — до нуля
+    const f = legFrame(L, D.s), ahead = legFrame(L, Math.min(L.len, D.s + 6));
+    const k = Math.max(Math.abs(f.kappa), Math.abs(ahead.kappa));
+    let vt = Math.min(L.vmax, Math.sqrt(3.2 / Math.max(k, 1e-3)));
+    if (!L.through) vt = Math.min(vt, Math.sqrt(2 * L.dec * 0.8 * Math.max(0, L.len - D.s)) + 0.15);
+    const v0 = D.v;
+    if (D.v < vt) D.v = Math.min(vt, D.v + L.acc * dt * (1 - D.v / (L.vmax + 4)));
+    else D.v = Math.max(vt, D.v - L.dec * dt);
+    D.a = dt > 0 ? (D.v - v0) / dt : 0;
+    D.s += D.v * dt;
+    if (D.s >= L.len) {
+      D.s = L.len;
+      if (!L.through) D.v = 0;
+      D.waitT = L.through ? 1e-4 : Math.max(1e-4, L.wait);
+    }
+    placeCarOnPath(D, dt);
+  }
+  // Пыль из-под колёс и дым из выхлопной трубы
+  function makeCarFx(parent) {
+    const parts = [];
+    const tex = glowTexture();
+    for (let i = 0; i < 36; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: 0xb49a78, transparent: true, opacity: 0, depthWrite: false }));
+      sp.visible = false; parent.add(sp);
+      parts.push({ sp, life: 0, max: 1, vx: 0, vy: 0, vz: 0, grow: 1 });
+    }
+    let acc = 0, next = 0;
+    const _p = new THREE.Vector3();
+    return {
+      update(D, dt) {
+        const car = D.car;
+        const rate = (D.engine ? 3 : 0) + Math.max(0, Math.abs(D.v) - 1.5) * 4.5;
+        acc += rate * dt;
+        while (acc >= 1) {
+          acc -= 1;
+          const p = parts[next]; next = (next + 1) % parts.length;
+          const dust = Math.abs(D.v) > 1.5 && Math.random() < 0.85;
+          // Точка за задними колёсами или у выхлопа
+          _p.set(-CAR_WB / 2 - 0.4, dust ? 0.15 : 0.35, dust ? (Math.random() < 0.5 ? -0.8 : 0.8) : 0.5);
+          car.localToWorld(_p);
+          p.sp.position.copy(_p);
+          p.sp.material.color.setHex(dust ? 0xb49a78 : 0x8a8a8a);
+          p.life = 0; p.max = dust ? rand(1.2, 2) : rand(0.8, 1.3);
+          p.vx = rand(-0.4, 0.4); p.vy = rand(0.3, 0.8); p.vz = rand(-0.4, 0.4);
+          p.grow = dust ? rand(1.6, 2.4) : rand(0.6, 0.9);
+          p.peak = dust ? Math.min(0.5, 0.12 + Math.abs(D.v) * 0.03) : 0.22;
+          p.sp.visible = true;
+        }
+        for (const p of parts) {
+          if (!p.sp.visible) continue;
+          p.life += dt;
+          const k = p.life / p.max;
+          if (k >= 1) { p.sp.visible = false; continue; }
+          p.sp.position.x += p.vx * dt; p.sp.position.y += p.vy * dt; p.sp.position.z += p.vz * dt;
+          const sz = 0.3 + p.grow * k;
+          p.sp.scale.set(sz, sz, 1);
+          p.sp.material.opacity = p.peak * Math.sin(Math.PI * k);
+        }
+      },
+      clear() { for (const p of parts) p.sp.visible = false; },
+    };
   }
   function makeChest() {
     const g = new THREE.Group();
@@ -3827,7 +4287,9 @@
       doorBox = { x: cx + off, z: cz, rot: 0, hw: T / 2, hd: door / 2 };
     }
     L1.group.add(g);
-    return { spec: b, g, roof, walls, cx, cz, gy, doorMesh, doorBox, inside: (x, z) => Math.abs(x - cx) < b.w / 2 && Math.abs(z - cz) < b.d / 2 };
+    const dn = { n: [0, -1], s: [0, 1], w: [-1, 0], e: [1, 0] }[b.door];
+    const doorPt = { x: cx + dn[0] * b.w / 2, z: cz + dn[1] * b.d / 2, nx: dn[0], nz: dn[1] };
+    return { spec: b, g, roof, walls, cx, cz, gy, doorMesh, doorBox, doorPt, inside: (x, z) => Math.abs(x - cx) < b.w / 2 && Math.abs(z - cz) < b.d / 2 };
   }
 
   // Мост: разрушенный и починенный вариант
@@ -3948,7 +4410,6 @@
     const carX = C.x + CAR.dx, carZ = C.z + CAR.dz;
     L1.car.position.set(carX, getHeight(carX, carZ), carZ);
     L1.car.rotation.y = CAR.rot;
-    L1.car.rotation.z = 0.04;
     L1.group.add(L1.car);
     L1.boxes.push({ x: carX, z: carZ, rot: CAR.rot, hw: 2.15, hd: 0.95 });
     // Фонари и столбы с лампами (ночью светятся — огни видно с нашего берега)
@@ -3972,9 +4433,43 @@
       const bag = rbMesh(0.6, 0.35, 0.4, 0.12, std([0x3a5a8a, 0x8a3a3a, 0x3a7a4a, 0x7a6a3a][i % 4]));
       bag.position.set(x, getHeight(x, z) + 0.17, z); bag.rotation.set(0, hash2(i, 3, 70) * 6, 0.3); L1.group.add(bag);
     }
+    // Генератор в будке: бак, мотор, глушитель
+    {
+      const gb = L1.buildings.find((b) => b.spec.id === 'gen');
+      const g = new THREE.Group(), x = gb.cx - 0.5, z = gb.cz - 0.4;
+      const frame = std(0x2f4a2a, { roughness: 0.7 }), tank = std(0xc9a23a, { roughness: 0.5 }), metal = std(0x3a3a3a, { metalness: 0.5, roughness: 0.5 });
+      const add = (m, px, py, pz) => { m.position.set(px, py, pz); g.add(m); return m; };
+      add(rbMesh(1.1, 0.12, 0.7, 0.04, metal), 0, 0.06, 0);
+      add(rbMesh(0.9, 0.5, 0.6, 0.08, frame), 0, 0.38, 0);
+      add(rbMesh(0.6, 0.24, 0.5, 0.08, tank), 0.1, 0.75, 0);
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.4, 8), metal); pipe.rotation.z = Math.PI / 2; add(pipe, -0.6, 0.4, 0.18);
+      add(rbMesh(0.14, 0.14, 0.14, 0.04, std(0x7a2a1a)), 0.38, 0.5, 0.3);
+      g.position.set(x, gb.gy + 0.12, z);
+      L1.group.add(g);
+      L1.gen = { g, x, z, by: g.position.y, smoke: [] };
+      for (let k = 0; k < 6; k++) {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0x777777, transparent: true, opacity: 0, depthWrite: false }));
+        sp.visible = false; L1.group.add(sp); L1.gen.smoke.push({ sp, t: k / 6 });
+      }
+      L1.circles.push({ x, z, r: 0.6 });
+    }
+    // Ключ от склада, если вожатый его обронил
+    {
+      const k = new THREE.Group();
+      const gold = std(0xd9b23a, { metalness: 0.7, roughness: 0.3 });
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.02, 6, 14), gold); ring.rotation.x = Math.PI / 2; k.add(ring);
+      const shaft = rbMesh(0.05, 0.03, 0.28, 0.01, gold); shaft.position.z = 0.22; k.add(shaft);
+      const tag = rbMesh(0.14, 0.02, 0.09, 0.01, std(0xe8e0c8)); tag.position.set(0.12, 0, 0.02); k.add(tag);
+      const glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffe08a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      glint.scale.set(0.8, 0.8, 1); glint.position.y = 0.25; k.add(glint);
+      k.visible = false;
+      L1.group.add(k);
+      L1.keyMesh = k;
+    }
     // Точки для взаимодействия
     const be = bridgeEnds();
     L1.interact = [
+      { kind: 'gen', x: L1.gen.x, z: L1.gen.z, r: 1.9 },
       { kind: 'tent', x: LV.tent.x, z: LV.tent.z, r: 2.6 },
       { kind: 'bridge', x: be.w - 0.5, z: LV.bridgeZ, r: 3.2 },
       { kind: 'car', x: carX, z: carZ, r: 3.2 },
@@ -3994,6 +4489,8 @@
     L1.bridge.fixed.visible = s.bridge;
     raiseBridge(s.bridge);
     L1.sneaker.visible = true;
+    L1.keyMesh.visible = !!s.keyDrop;
+    if (s.keyDrop) L1.keyMesh.position.set(s.keyDrop.x, getHeight(s.keyDrop.x, s.keyDrop.z) + 0.06, s.keyDrop.z);
   }
   const doorOpen = (box) => { const sk = L1.buildings.find((b) => b.spec.id === 'sklad'); return box === sk.doorBox && P.story.skladOpen; };
 
@@ -4043,12 +4540,13 @@
       if (it.kind === 'chest' && P.story.opened[it.chest.spec.id]) continue;
       if (it.kind === 'bridge' && P.story.bridge) continue;
       if (it.kind === 'sklad' && P.story.skladOpen) continue;
-      if (it.kind === 'car' && P.story.levelDone) continue;
+      if (it.kind === 'car' && (P.story.levelDone || P.story.repairing)) continue;
+      if (it.kind === 'gen' && P.story.bat !== 'dead') continue;
       if (it.kind === 'tent' && !canSleepTime()) continue;
       best = it; bd = d;
     }
     if (!best) return null;
-    const label = { tent: 'Спать', bridge: 'Починить мост', car: 'Чинить машину', sklad: 'Открыть склад', chest: 'Открыть' }[best.kind];
+    const label = { tent: 'Спать', bridge: 'Починить мост', car: 'Чинить машину', sklad: 'Открыть склад', chest: 'Открыть', gen: 'Зарядить аккумулятор' }[best.kind];
     return { kind: 'use', target: best, label };
   }
   const canSleepTime = () => W.night || (W.t > CFG.dayLen - 45);
@@ -4064,21 +4562,28 @@
         Sound.play('craft');
         const got = [];
         if (ch.part) { s.parts[ch.part] = true; got.push(PARTS[ch.part]); }
-        if (ch.key) { s.key = true; got.push('Ключ от склада'); }
+        if (ch.also) { s.parts[ch.also] = true; got.push(PARTS[ch.also]); }
+        if (ch.bat) { s.bat = 'dead'; got.push('Аккумулятор (разряжен)'); }
+        if (ch.gas) { s.gas = true; got.push('Бензин для генератора'); }
         for (const [id, n] of Object.entries(ch.items)) { const k = invAdd(id, n); if (k) got.push(ITEMS[id] + ' ×' + k); }
         toast(got.length ? 'Найдено: ' + got.join(', ') : 'Пусто', got.length ? 'good' : 'item');
-        if (ch.key) Say.line('L1-24');
+        if (ch.bat) Say.line('L1-32');
         if (Object.keys(PARTS).every((p) => s.parts[p])) Say.line('L1-25');
       });
     } else if (it.kind === 'sklad') {
-      if (!s.key) { toast('Заперто. Нужен ключ от склада', 'warn'); return; }
+      if (!s.key) { s.skladTried = true; toast('Заперто. Нужен ключ от склада', 'warn'); Say.line('L1-35'); return; }
       s.skladOpen = true; applyStory(); Sound.play('chop'); toast('Склад открыт', 'good');
     } else if (it.kind === 'bridge') {
-      const have = invCount('wood');
-      if (have < LV.bridgeWood) { toast('Для ремонта нужно дерево: ' + have + ' / ' + LV.bridgeWood, 'warn'); Say.line('L1-14a'); return; }
+      const wood = invCount('wood'), stone = invCount('stone');
+      if (wood < LV.bridgeWood || stone < LV.bridgeStone) {
+        toast('Для ремонта нужно: дерево ' + Math.min(wood, LV.bridgeWood) + ' / ' + LV.bridgeWood + ', камень ' + Math.min(stone, LV.bridgeStone) + ' / ' + LV.bridgeStone, 'warn');
+        Say.line('L1-14a');
+        return;
+      }
       faceTo(riverCX(LV.bridgeZ), LV.bridgeZ);
       playAnim('mine', () => {
         invRemove('wood', LV.bridgeWood);
+        invRemove('stone', LV.bridgeStone);
         s.bridge = true;
         applyStory();
         Sound.play('craft');
@@ -4089,7 +4594,22 @@
       s.carSeen = true;
       const missing = Object.keys(PARTS).filter((p) => !s.parts[p]);
       if (missing.length) { toast('Не хватает: ' + missing.map((p) => PARTS[p]).join(', '), 'warn'); Say.line('L1-23'); return; }
-      playAnim('mine', () => { Sound.play('craft'); finishLevel(); });
+      // Ремонт идёт, пока Папа рядом с машиной; стук слышно далеко
+      s.repairing = true; s.repair = s.repair || 0;
+      L1.repairNoiseT = 4;
+      toast('Ремонт начат. Не отходи от машины', 'good');
+      Say.line('L1-37');
+    } else if (it.kind === 'gen') {
+      if (!s.gas) { toast('В генераторе нет бензина. Поищи канистру', 'warn'); return; }
+      faceTo(L1.gen.x, L1.gen.z);
+      playAnim('mine', () => {
+        s.gas = false; s.bat = 'charging'; s.charge = 0;
+        Sound.play('starter');
+        toast('Аккумулятор заряжается. Не уходи далеко', 'good');
+        Say.line('L1-33');
+        L1.noiseT = 3;
+        wakeSleepers(L1.gen.x, L1.gen.z, 24);
+      });
     } else if (it.kind === 'tent') {
       if (zombiesNear(28)) { toast('Рядом твари — уснуть не получится', 'bad'); return; }
       sleep();
@@ -4117,23 +4637,161 @@
     Say.line('L1-12');
   }
   function onNightStory() {
-    // Первая ночь без тварей, со второй — вожатый, потом всё больше
+    // Первая ночь без тварей, со второй — вожатый с ключом от склада, потом всё больше
     if (W.day === 1) { W.toSpawn = 0; return true; }
-    if (W.day === 2 && !P.story.said['L1-26']) {
-      const a = Math.atan2(P.z - LV.camp.z, P.x - LV.camp.x) + rand(-0.8, 0.8);
-      for (let i = 0; i < 12; i++) {
-        const x = P.x + Math.cos(a + i) * 24, z = P.z + Math.sin(a + i) * 24;
-        if (!zombieSpotOk(x, z) || getHeight(x, z) < 0.8) continue;
-        const zb = spawnZombieAt(x, z, false, VOZH_MATS);
-        zb.special = 'vozh'; zb.speed *= 0.55;
-        break;
-      }
-      W.toSpawn = 2;
-      W.spawnT = 25;
-      return true;
-    }
+    const s = P.story;
+    if (!s.key && !s.keyDrop && !zombies.some((z) => z.special === 'vozh' && !z.dead && !z.burn)) spawnVozh();
+    if (W.day === 2) { W.toSpawn = 2; W.spawnT = 25; return true; }
     W.toSpawn = Math.min(CFG.zombie.base + CFG.zombie.perDay * (W.day - 3), CFG.zombie.max);
     return false;
+  }
+  function spawnVozh() {
+    const a = Math.atan2(P.z - LV.camp.z, P.x - LV.camp.x) + rand(-0.8, 0.8);
+    for (let i = 0; i < 12; i++) {
+      const x = P.x + Math.cos(a + i) * 24, z = P.z + Math.sin(a + i) * 24;
+      if (!zombieSpotOk(x, z) || getHeight(x, z) < 0.8) continue;
+      const zb = spawnZombieAt(x, z, false, VOZH_MATS);
+      zb.special = 'vozh'; zb.speed *= 0.55;
+      return;
+    }
+  }
+
+  // ---------- Спящие заражённые в домах лагеря
+  let sleepCheckT = 0;
+  function wakeSleepers(x, z, r) {
+    for (const o of zombies) {
+      if (!o.dormant || o.dead || Math.hypot(o.x - x, o.z - z) > r) continue;
+      o.dormant = false;
+      o.atkCd = 0.8;
+      Sound.play('groan', 0.9);
+    }
+  }
+  function dormantPose(z, dt) {
+    z.walk += dt * 0.7;
+    animateHuman(z.h, 0, 0, true, false);
+    // Стоит, свесив голову и руки, чуть покачивается
+    z.h.armL.rotation.x = 0.12; z.h.armR.rotation.x = 0.05;
+    z.h.head.rotation.x = 0.55 + Math.sin(z.walk) * 0.05;
+    z.h.upper.rotation.x = 0.16 + Math.sin(z.walk * 0.7) * 0.03;
+    z.y = groundY(z.x, z.z);
+    z.h.g.position.set(z.x, z.y, z.z);
+    z.h.g.rotation.y = z.face;
+    z.bar.g.visible = false;
+  }
+  function updateSleepers(dt) {
+    const s = P.story;
+    for (const z of zombies) if (z.sleeper && (z.dead || z.burn) && !s.sleepers[z.sleeper]) s.sleepers[z.sleeper] = true;
+    sleepCheckT -= dt;
+    if (sleepCheckT <= 0) {
+      sleepCheckT = 2;
+      if (s.bridge && !inCave && Math.hypot(P.x - LV.camp.x, P.z - LV.camp.z) < 95) {
+        for (const sp of SLEEPERS) {
+          if (s.sleepers[sp.id] || zombies.some((z) => z.sleeper === sp.id)) continue;
+          const b = L1.buildings.find((x) => x.spec.id === sp.b);
+          const z = spawnZombieAt(b.cx + sp.dx, b.cz + sp.dz, false);
+          z.sleeper = sp.id; z.dormant = true; z.face = hash2(sp.dx * 10, sp.dz * 10, 3) * TAU;
+        }
+      }
+    }
+    if (inCave || P.dead) return;
+    for (const z of zombies) {
+      if (!z.dormant || z.dead) continue;
+      const d = Math.hypot(z.x - P.x, z.z - P.z);
+      if (d < 11) Say.line('L1-36');
+      // Просыпается от шагов совсем рядом и будит соседей по дому
+      if (d < 4.2) wakeSleepers(z.x, z.z, 6);
+    }
+  }
+  // Твари идут через дверь, а не сквозь стену
+  function steer(z) {
+    for (const b of L1.buildings) {
+      const zin = b.inside(z.x, z.z), pin = b.inside(P.x, P.z);
+      if (zin === pin) continue;
+      if (b.spec.locked && !P.story.skladOpen) continue;
+      const dp = b.doorPt, ox = z.x - dp.x, oz = z.z - dp.z;
+      const lat = Math.abs(ox * -dp.nz + oz * dp.nx);
+      if (zin) return lat < 0.5 ? { x: dp.x + dp.nx * 1.8, z: dp.z + dp.nz * 1.8 } : { x: dp.x - dp.nx * 0.8, z: dp.z - dp.nz * 0.8 };
+      return lat < 0.5 ? { x: dp.x - dp.nx * 1.5, z: dp.z - dp.nz * 1.5 } : { x: dp.x + dp.nx * 1.4, z: dp.z + dp.nz * 1.4 };
+    }
+    return null;
+  }
+
+  // ---------- Генератор: заряжает аккумулятор, пока игрок рядом; шум зовёт тварей
+  function spawnNoiseZombie(cx, cz) {
+    for (let k = 0; k < 14; k++) {
+      const a = rand(0, TAU), r = rand(26, 38);
+      const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+      if (!zombieSpotOk(x, z) || getHeight(x, z) < 0.8 || Math.hypot(x - P.x, z - P.z) < 14) continue;
+      spawnZombieAt(x, z, false).noise = true;
+      return;
+    }
+  }
+  function updateGen(dt) {
+    const s = P.story, G = L1.gen;
+    const on = s.bat === 'charging';
+    const d = Math.hypot(P.x - G.x, P.z - G.z);
+    const near = on && d < LV.chargeNear && !inCave && !P.dead;
+    G.g.position.y = G.by + (near ? Math.abs(Math.sin(W.clock * 40)) * 0.015 : 0);
+    for (const p of G.smoke) {
+      if (!near) { p.sp.visible = false; continue; }
+      p.t = (p.t + dt * 0.8) % 1;
+      p.sp.visible = true;
+      p.sp.position.set(G.x - 0.85 + p.t * 0.3, G.by + 0.45 + p.t * 2.2, G.z + 0.18);
+      const sz = 0.25 + p.t * 1.1;
+      p.sp.scale.set(sz, sz, 1);
+      p.sp.material.opacity = 0.3 * Math.sin(Math.PI * p.t);
+    }
+    Sound.loop('gen', near ? clamp(1 - d / 50, 0, 1) * 0.7 : 0, 0.5);
+    if (!near) return;
+    s.charge = Math.min(1, s.charge + dt / LV.chargeTime);
+    L1.noiseT = (L1.noiseT || 0) - dt;
+    if (L1.noiseT <= 0) {
+      L1.noiseT = LV.noiseEvery;
+      if (zombies.filter((z) => z.noise && !z.dead && !z.burn).length < LV.noiseMax) spawnNoiseZombie(G.x, G.z);
+    }
+    if (s.charge >= 1) {
+      s.bat = 'ok'; s.parts.battery = true;
+      Sound.play('craft');
+      toast('Аккумулятор заряжен', 'good');
+      Say.line('L1-34');
+      if (Object.keys(PARTS).every((k) => s.parts[k])) Say.line('L1-25');
+      persist();
+    }
+  }
+  // Ремонт машины: прогресс, пока Папа рядом; стук зовёт тварей; в конце — сцена отъезда
+  let hammerT = 0;
+  function updateRepair(dt) {
+    const s = P.story;
+    if (!s.repairing || s.levelDone || inCave || P.dead) return;
+    const cx = L1.car.position.x, cz = L1.car.position.z;
+    if (Math.hypot(P.x - cx, P.z - cz) > LV.repairNear) return;
+    s.repair = Math.min(1, s.repair + dt / LV.repairTime);
+    hammerT -= dt;
+    if (hammerT <= 0) { hammerT = rand(0.45, 0.8); Sound.play('mine'); }
+    L1.repairNoiseT = (L1.repairNoiseT || 0) - dt;
+    if (L1.repairNoiseT <= 0) {
+      L1.repairNoiseT = 7;
+      if (zombies.filter((z) => z.noise && !z.dead && !z.burn).length < LV.noiseMax + 1) spawnNoiseZombie(cx, cz);
+    }
+    if (s.repair >= 1) { s.repairing = false; finishLevel(); }
+  }
+  // Вожатый обронил ключ, когда погиб или сгорел на рассвете
+  function updateKey(dt) {
+    const s = P.story;
+    for (const z of zombies) {
+      if (z.special !== 'vozh' || z.keyDropped || !(z.dead || z.burn)) continue;
+      z.keyDropped = true;
+      if (!s.key && !s.keyDrop) { s.keyDrop = { x: z.x, z: z.z }; applyStory(); toast('Что-то блеснуло на земле', 'item'); }
+    }
+    if (!s.keyDrop) return;
+    L1.keyMesh.rotation.y += dt * 1.5;
+    if (!inCave && Math.hypot(P.x - s.keyDrop.x, P.z - s.keyDrop.z) < 1.6) {
+      s.key = true; s.keyDrop = null;
+      applyStory();
+      Sound.play('pick');
+      toast('Найдено: Ключ от склада', 'good');
+      Say.line('L1-24');
+    }
   }
   function onDawnStory() {
     if (W.day === 2 && !P.story.momCalled) setTimeout(momCall, 2500);
@@ -4144,16 +4802,22 @@
     Sound.play('ring');
     setTimeout(() => Sound.play('ring'), 1300);
     P.phone = true;
+    PhoneUI.show('Мама', 'Входящий вызов', 'ring');
     const tel = { who: 'Мама · телефон' };
     setTimeout(() => {
+      PhoneUI.show('Мама', '', 'live');
       Say.line('L1-16', tel); Say.line('L1-17'); Say.line('L1-18', tel); Say.line('L1-19', tel); Say.line('L1-20', tel);
-      Say.line('L1-21', { onEnd: () => { P.phone = false; } });
+      Say.line('L1-21', { onEnd: () => { P.phone = false; PhoneUI.show('Мама', 'Связь прервана', 'ended'); Sound.play('busy'); } });
     }, 2600);
   }
 
   function update(dt) {
     Say.update(dt);
     const s = P.story;
+    updateGen(dt);
+    updateRepair(dt);
+    updateKey(dt);
+    updateSleepers(dt);
     // Окна и фонари лагеря ночью светятся
     const glow = nightK;
     for (const m of L1.windows) m.color.setRGB(lerp(0.13, 1.0, glow), lerp(0.19, 0.78, glow), lerp(0.25, 0.4, glow));
@@ -4193,12 +4857,26 @@
       sub = W.night ? 'Ложись спать в палатке — утром продолжишь поиски' : 'Осмотри лагерь и дорогу';
     } else if (!s.bridge) {
       title = 'Починить мост через реку';
-      sub = 'Дерево: ' + Math.min(invCount('wood'), LV.bridgeWood) + ' / ' + LV.bridgeWood + ' · мост ниже по берегу';
-    } else if (!s.carSeen && !Object.keys(PARTS).some((k) => s.parts[k])) {
+      sub = 'Дерево ' + Math.min(invCount('wood'), LV.bridgeWood) + ' / ' + LV.bridgeWood + ' · камень ' + Math.min(invCount('stone'), LV.bridgeStone) + ' / ' + LV.bridgeStone;
+    } else if (!s.carSeen && !Object.keys(PARTS).some((k) => s.parts[k]) && !s.bat) {
       title = 'Найти машину в лагере сборов'; sub = 'Лагерь за мостом, на том берегу';
     } else {
       const left = Object.keys(PARTS).filter((p) => !s.parts[p]);
-      if (left.length) { title = 'Детали для машины: ' + (4 - left.length) + ' / 4'; sub = 'Нужно: ' + left.map((p) => PARTS[p]).join(', '); }
+      const near = Math.hypot(P.x - L1.gen.x, P.z - L1.gen.z) < LV.chargeNear;
+      const what = (p) => {
+        if (p === 'battery') {
+          if (s.bat === 'dead') return s.gas ? 'аккумулятор: запусти генератор' : 'аккумулятор: нужен бензин для генератора';
+          if (s.bat === 'charging') return 'аккумулятор: зарядка ' + Math.floor(s.charge * 100) + '%' + (near ? '' : ', вернись к генератору');
+          return 'аккумулятор';
+        }
+        if (p === 'wheel' && !s.skladOpen && s.skladTried) return s.keyDrop ? 'колесо: подбери ключ' : 'колесо: нужен ключ от склада';
+        if (p === 'fuel') return 'бензин для машины';
+        return PARTS[p].toLowerCase();
+      };
+      if (s.repairing) {
+        const far = Math.hypot(P.x - L1.car.position.x, P.z - L1.car.position.z) > LV.repairNear;
+        title = 'Ремонт машины: ' + Math.floor(s.repair * 100) + '%'; sub = far ? 'Вернись к машине — без тебя ремонт стоит' : 'Держись рядом с машиной и отбивайся';
+      } else if (left.length) { title = 'Детали для машины: ' + (4 - left.length) + ' / 4'; sub = left.map(what).join(' · '); }
       else { title = 'Починить машину'; sub = 'Все детали собраны — машина у ворот'; }
     }
     const key = title + '|' + sub;
@@ -4213,6 +4891,8 @@
     P.story.levelDone = true;
     persist();
     Say.clear();
+    // Твари вокруг не должны застыть в кадре финальной сцены
+    for (const z of zombies.slice()) if (!z.cave) removeZombie(z);
     Intro.play('ending');
   }
 
@@ -4222,7 +4902,7 @@
     buildMask, shapeTerrain, recordBridgeStrip, groundTint, build: buildLevel, applyStory,
     collide: levelCollide, blocksCamera, nearInteract, use, update, begin, onNightStory, onDawnStory, onBitten,
     noVeg: (x, z) => !!(maskAt(x, z) & M_NOVEG), noGrass: (x, z) => !!(maskAt(x, z) & M_NOGRASS),
-    zombieSpotOk, freshStory, makeCar, riverCX,
+    zombieSpotOk, freshStory, makeCar, riverCX, steer, dormantPose,
   };
 
   // ==================================================================
@@ -4232,8 +4912,10 @@
     const el = { root: $('intro'), who: $('introWho'), text: $('introText'), next: $('introNext'), title: $('introTitle'), skip: $('introSkip') };
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
     let S = null; // текущая сцена
-    let i = 0, shot = null, shotT = 0, shotLen = 1, chars = 0, lineT = 0, done = false, titleT = -1;
-    let group = null, actors = {};
+    let i = 0, shot = null, shotT = 0, shotLen = 1, chars = 0, lineT = 0, done = false, titleT = -1, waiting = false;
+    let group = null, actors = {}, timers = [], evDone = new Set();
+    const later = (t, fn) => timers.push({ t, fn });
+    const curShot = () => shot && shot.name;
 
     // Положение на дороге: t = 0 у нашего лагеря, t = 1 — далеко у края карты
     function roadPoint(t) {
@@ -4244,115 +4926,395 @@
       for (let k = 0; k < segs.length; k++) {
         if (d <= segs[k] || k === segs.length - 1) {
           const u = clamp(d / segs[k], 0, 1), a = pts[k], b = pts[k + 1];
-          return { x: lerp(a[0], b[0], u), z: lerp(a[1], b[1], u), ang: Math.atan2(b[0] - a[0], b[1] - a[1]) };
+          return { x: lerp(a[0], b[0], u), z: lerp(a[1], b[1], u) };
         }
         d -= segs[k];
       }
     }
+    const roadPts = (u0, u1, n) => Array.from({ length: n + 1 }, (_, k) => { const p = roadPoint(lerp(u0, u1, k / n)); return [p.x, p.z]; });
     const PARK = { x: -6, z: -1.5 };
-    function placeCar(car, t, reverse) {
-      const p = roadPoint(t);
-      car.position.set(p.x, getHeight(p.x, p.z), p.z);
-      car.rotation.y = p.ang + (reverse ? Math.PI : 0) - Math.PI / 2;
-    }
+    // Подъезд: по дороге, потом поворот на поляну и остановка
+    const ARRIVE = [
+      { pts: roadPts(0.36, 0.1, 9), vmax: 12, through: true },
+      { pts: [[-28.5, -10.2], [-20, -7.6], [-13, -5.2], [-8.6, -3.2], [PARK.x, PARK.z]], vmax: 8 },
+    ];
+    // Отъезд: задом с разворотом, потом вперёд на дорогу
+    const LEAVE = [
+      { pts: [[PARK.x, PARK.z], [-8.1, -2.9], [-10.3, -2.6], [-11.6, -0.8], [-12, 1.2]], rev: true, vmax: 2.6, wait: 0.7 },
+      { pts: [[-12, 1.2], [-12.1, -2.5], [-13.8, -6.2], [-19, -8.4], [-28.5, -10.2]].concat(roadPts(0.1, 0.62, 10).slice(1)), vmax: 13 },
+    ];
+
     function npc(mats, extra) {
       const h = makeHuman(mats, 'hero');
       if (extra) extra(h);
       group.add(h.g);
       return h;
     }
+    // Актёр идёт по точкам [x, z, пауза]; в паузе работает руками (ставит палатку, собирает ветки)
+    function actor(h, x, z, face) { return { h, x, z, face, walk: 0, path: [], speed: 2.2, pause: 0, moving: false, working: false, visible: true, faceTo: null, onDone: null }; }
+    function go(a, pts, speed, onDone) { a.path = pts.map((p) => p.slice()); if (speed) a.speed = speed; a.pause = 0; a.onDone = onDone || null; }
+    const angTo = (a, x, z) => { const d = Math.atan2(x - a.x, z - a.z) - a.face; return ((d + Math.PI) % TAU + TAU) % TAU - Math.PI; };
+    function stepActor(a, dt) {
+      a.moving = false; a.working = false;
+      if (a.pause > 0) { a.pause -= dt; a.working = true; }
+      else if (a.path.length) {
+        const p = a.path[0], dx = p[0] - a.x, dz = p[1] - a.z, d = Math.hypot(dx, dz);
+        if (d < 0.06) { a.path.shift(); a.pause = p[2] || 0; }
+        else {
+          const st = Math.min(d, a.speed * dt);
+          a.x += dx / d * st; a.z += dz / d * st;
+          a.face = lerpAngle(a.face, Math.atan2(dx, dz), 1 - Math.exp(-dt * 10));
+          a.moving = true;
+        }
+      } else if (a.onDone) { const f = a.onDone; a.onDone = null; f(); }
+      if (!a.moving && a.faceTo) a.face = lerpAngle(a.face, Math.atan2(a.faceTo[0] - a.x, a.faceTo[1] - a.z), 1 - Math.exp(-dt * 5));
+      if (a.moving) a.walk += dt * (3 + a.speed * 1.9);
+      const bob = animateHuman(a.h, a.walk, a.moving ? Math.min(1.25, 0.5 + a.speed / 4) : 0, false, false);
+      if (a.working) {
+        const k = Math.sin(W.clock * (a.speed > 4 ? 18 : 7));
+        a.h.upper.rotation.x = 0.75; a.h.armR.rotation.x = -1.0 + k * 0.4; a.h.armL.rotation.x = -0.8 - k * 0.4;
+      }
+      a.h.g.visible = a.visible;
+      a.h.g.position.set(a.x, getHeight(a.x, a.z) + bob, a.z);
+      a.h.g.rotation.y = a.face;
+    }
+    // Кто говорит — жестикулирует, остальные поворачивают к нему голову; все слегка дышат
+    function talkPose(L) {
+      const who = LINES[L.id][0], t = lineT;
+      const cast = [actors.papa, actors.misha, actors.jack, actors.mia].filter(Boolean);
+      const sp = { 'Папа': actors.papa, 'Миша': actors.misha, 'Джек': actors.jack, 'Мия': actors.mia }[who];
+      for (const a of cast) {
+        if (!a.visible || a.moving || a.working) continue;
+        a.h.upper.rotation.z = Math.sin(W.clock * 0.8 + a.x) * 0.02;
+        a.h.upper.rotation.x = Math.sin(W.clock * 1.6 + a.z) * 0.012;
+        if (a === sp && !waiting) {
+          const k = Math.sin(t * 4.2), k2 = Math.sin(t * 2.6 + 1);
+          a.h.head.rotation.x = k * 0.06; a.h.head.rotation.y = k2 * 0.12;
+          a.h.armR.rotation.x = -0.4 + k2 * 0.2; a.h.armR.rotation.z = 0.12; a.h.foreR.rotation.x = -0.75 + k * 0.15;
+        } else if (sp && sp.visible && sp !== a) {
+          a.h.head.rotation.y = clamp(angTo(a, sp.x, sp.z), -1.1, 1.1);
+        }
+      }
+    }
+    // Рука частично тянется к точке: k = 0 — обычная поза, 1 — точно в цель
+    const _qa = new THREE.Quaternion(), _qf = new THREE.Quaternion();
+    function reach(h, right, target, pole, k) {
+      if (k <= 0) return;
+      const arm = right ? h.armR : h.armL, fore = right ? h.foreR : h.foreL;
+      _qa.copy(arm.quaternion); _qf.copy(fore.quaternion);
+      armIK(h, right, target, pole);
+      if (k < 1) { arm.quaternion.copy(_qa.slerp(arm.quaternion, k)); fore.quaternion.copy(_qf.slerp(fore.quaternion, k)); }
+    }
+    const _lv = new THREE.Vector3();
+    function loc(obj, lx, ly, lz) { obj.updateMatrixWorld(); return obj.localToWorld(V(lx, ly, lz)); }
+    function carPt(car, lx, lz) { car.updateMatrixWorld(); _lv.set(lx, 0, lz); car.localToWorld(_lv); return [_lv.x, _lv.z]; }
+    // Двери: 0 — передняя правая, 1 — передняя левая (водитель), 2 — задняя правая, 3 — задняя левая
+    const DOOR = [[0.14, 1], [0.14, -1], [-0.86, 1], [-0.86, -1]];
+    function exitCar(a, car, door, then, speed) {
+      const [dx, sz] = DOOR[door];
+      carDoor(car, door, true);
+      later(0.35, () => {
+        const p0 = carPt(car, dx, sz * 1.0), p1 = carPt(car, dx - 0.3, sz * 2.0);
+        a.x = p0[0]; a.z = p0[1]; a.visible = true; a.face = Math.atan2(p1[0] - p0[0], p1[1] - p0[1]);
+        go(a, [p1].concat(then || []), 1.6);
+        later(0.9, () => { carDoor(car, door, false); if (speed) a.speed = speed; });
+      });
+    }
+    function enterCar(a, car, door, onIn) {
+      const [dx, sz] = DOOR[door];
+      const p1 = carPt(car, dx - 0.3, sz * 1.9);
+      go(a, [p1], 2.1, () => {
+        a.faceTo = carPt(car, dx, 0);
+        carDoor(car, door, true);
+        later(0.5, () => go(a, [carPt(car, dx, sz * 0.7)], 1.3, () => {
+          a.visible = false;
+          later(0.25, () => carDoor(car, door, false));
+          if (onIn) onIn();
+        }));
+      });
+    }
+    // Машина в кадре: физика, пыль и звук мотора
+    function carTick(dt) {
+      const D = actors.drive;
+      if (!D) return;
+      updateDrive(D, dt);
+      if (actors.fx) actors.fx.update(D, dt);
+      const vol = D.engine ? 0.3 + 0.7 * camVol(D.car, 90) : 0;
+      Sound.loop('car', vol, 0.12 + Math.abs(D.v) / 13 + Math.max(0, D.a) * 0.05);
+    }
+    // Если сцену пролистали, машина сразу оказывается на стоянке с заглушенным мотором
+    function parkNow(D) {
+      if (!D) return;
+      D.leg = D.legs.length - 1; D.s = D.legs[D.leg].len; D.v = 0; D.a = 0; D.waitT = 0; D.done = true; D.engine = false;
+      for (let k = 0; k < 4; k++) carDoor(D.car, k, false);
+      placeCarOnPath(D, 0);
+    }
+    function heroPropsOff() {
+      swordMesh.visible = ironSwordMesh.visible = axeMesh.visible = bottleMesh.visible = berryMesh.visible = lanternMesh.visible = false;
+    }
+    // Фонарик и охапка веток для сцены пропажи
+    function makeTorch() {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.03, 0.2, 10), std(0x22262b, { metalness: 0.5, roughness: 0.4 }));
+      body.rotation.x = Math.PI / 2; body.position.set(0, -0.04, 0.06); g.add(body);
+      carTextures();
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 1.1, 8, 14, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0xfff4d8, map: beamTex, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      beam.rotation.x = -Math.PI / 2; beam.position.set(0, -0.04, 0.16 + 4); g.add(beam);
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xfff4d8, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      glow.scale.set(0.35, 0.35, 1); glow.position.set(0, -0.04, 0.17); g.add(glow);
+      g.visible = false;
+      return g;
+    }
+    function makeSticks() {
+      const g = new THREE.Group(), m = std(0x6b4a2f);
+      for (let k = 0; k < 5; k++) {
+        const st = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.9, 6), m);
+        st.rotation.set(Math.PI / 2 + (k - 2) * 0.12, (k - 2) * 0.15, 0); st.position.set((k - 2) * 0.03, -0.06, 0.1); g.add(st);
+      }
+      g.visible = false;
+      return g;
+    }
+    const basisQ = (zx, zy, zz, ux, uy, uz) => {
+      const z = V(zx, zy, zz).normalize(), up = V(ux, uy, uz);
+      const x = new THREE.Vector3().crossVectors(up, z).normalize(), y = new THREE.Vector3().crossVectors(z, x);
+      return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+    };
+    const TORCH_Q = basisQ(0, -0.15, 1, 0, 1, 0), STICKS_Q = basisQ(0.2, 0, 1, 0, 1, 0);
 
     const SCRIPTS = {
       intro: {
         title: 'Долгая <span class="lit">ночь</span>',
         endTitle: 'Уровень 1 · <span class="lit">Лес</span>',
         lines: [
-          { id: 'L1-01', shot: 'drive', title: true },
-          { id: 'L1-02', shot: 'drive' },
-          { id: 'L1-03', shot: 'camp' },
-          { id: 'L1-04', shot: 'camp' },
+          { id: 'L1-01', shot: 'road', title: true, minT: 4.5 },
+          { id: 'L1-02', shot: 'arrive', waitFor: () => actors.parked > 1.6 },
+          { id: 'L1-03', shot: 'camp', waitFor: () => shotT > 3.6 },
+          { id: 'L1-04', shot: 'camp', onShow: () => Sound.play('keys') },
           { id: 'L1-05', shot: 'camp' },
-          { id: 'L1-06', shot: 'leave' },
-          { id: 'L1-07', shot: 'gone' },
+          { id: 'L1-06', shot: 'leave', waitFor: () => actors.drive.engine && !actors.drive.hold, minT: 15 },
+          { id: 'L1-07', shot: 'gone', waitFor: () => shotT > 2.4 },
           { id: 'L1-08', shot: 'gone' },
-          { id: 'L1-09', shot: 'phone' },
-          { id: 'L1-10', shot: 'phone', who: 'Джек · телефон' },
-          { id: 'L1-11', shot: 'phone' },
+          { id: 'L1-09', shot: 'phone', waitFor: () => shotT > 1.2 },
+          { id: 'L1-10', shot: 'phone', who: 'Джек · телефон', onShow: () => { PhoneUI.show('Джек', '', 'live'); Sound.play('laugh'); } },
+          { id: 'L1-11', shot: 'phone', onShow: () => { PhoneUI.show('Джек', 'Вызов завершён', 'ended'); Sound.play('busy'); actors.ph = { a: 'ear', b: 'face', t0: shotT, dur: 1.1 }; } },
         ],
         shots: {
-          drive: { hour: 17.45, fog: [120, 600], cam: (t) => { const c = actors.car.position; return [V(c.x - 9 + t * 2, c.y + 3.2, c.z + 7), V(c.x, c.y + 1, c.z)]; } },
-          camp: { hour: 17.8, cam: (t) => [V(LV.fire.x + 0.5 - t * 1.5, P.y + 3.0 - t * 0.6, LV.fire.z + 8.5 - t * 2), V(LV.fire.x, P.y + 1.0, LV.fire.z + 0.6)] },
-          leave: { hour: 18.0, cam: (t) => [V(P.x - 3.5, P.y + 2.2, P.z + 5 - t), V(lerp(PARK.x, -40, t), P.y + 1, lerp(PARK.z, -14, t))] },
-          gone: { hour: 18.25, cam: (t) => [V(P.x + 2.6 * Math.cos(t * 1.2), P.y + 1.7, P.z + 2.6 * Math.sin(t * 1.2) + 1), V(P.x, P.y + 1.4, P.z)] },
-          phone: { hour: 18.4, cam: (t) => [V(P.x + 1.6 - t * 0.4, P.y + 1.75, P.z + 1.4 - t * 0.3), V(P.x, P.y + 1.65, P.z)] },
+          // Машина едет по дороге среди деревьев, камера скользит вдоль борта
+          road: {
+            hour: 17.3, fog: [120, 600],
+            cam: (k, t) => { const c = actors.car, u = clamp(t / 7, 0, 1); return [loc(c, 5 - 7.5 * u, 1.25 + u * 0.7, 4.6 + u * 0.8), loc(c, 0.6 - u, 0.95, 0)]; },
+          },
+          // Подъезжает к поляне, тормозит, все выходят
+          arrive: {
+            hour: 17.45, fog: [120, 600],
+            events: [[0, () => {
+              const D = actors.drive;
+              if (D.leg === 0 && D.legs[0].len - D.s > 28) { D.s = D.legs[0].len - 28; D.v = Math.min(D.v, 11); }
+            }]],
+            cam: (k, t) => {
+              const c = actors.car.position;
+              actors.look.lerp(V(c.x, c.y + 1, c.z), actors.lookInit ? 0.06 : 1); actors.lookInit = true;
+              // Спереди-слева от места стоянки: видно, как машина подъезжает и кто выходит
+              const ax = PARK.x + 5.2 + k * 0.6, az = PARK.z - 0.4 - k * 0.8;
+              return [V(ax, getHeight(ax, az) + 1.8 - k * 0.2, az), actors.look];
+            },
+          },
+          // Ускоренно: ставят палатку, носят дрова, разводят костёр, темнеет. Потом разговор у огня
+          camp: {
+            hour: (t) => t < 3.4 ? lerp(17.55, 18.2, smooth(t / 3.4)) : 18.2 + (t - 3.4) * 0.006,
+            events: [
+              [0, () => {
+                const a = actors;
+                parkNow(a.drive);
+                a.papa.x = -2; a.papa.z = 0.5; a.misha.x = -3.4; a.misha.z = -4; a.jack.x = -4.5; a.jack.z = 1.2; a.mia.x = -8; a.mia.z = -3.8;
+                for (const k of ['papa', 'misha', 'jack', 'mia']) a[k].visible = true;
+                go(a.papa, [[-0.4, -6.0, 0.8], [-2.6, -5.8, 0.6], [P.x, P.z]], 7);
+                go(a.misha, [[-2.8, -6.9, 0.8], [-0.6, -8.9, 0.5], [-0.4, 2.1]], 7);
+                go(a.jack, [[-9.5, 5, 0.35], [1.1, 0.1, 0.4], [-9, 6, 0.3], [1.9, 0.0, 0.3], [2.5, -1.3]], 8);
+                go(a.mia, [[-8.4, -2.9, 1.2], [-3, -2, 0.4], [3.6, 0.9]], 6);
+                a.papa.faceTo = a.misha.faceTo = a.jack.faceTo = a.mia.faceTo = [LV.fire.x, LV.fire.z];
+                L1.tent.visible = true; L1.tent.scale.set(0.6, 0.02, 0.6);
+              }],
+              [2.2, () => camFire(true)],
+            ],
+            cam: (k, t) => {
+              const u = smooth(clamp((t - 2.6) / 1.6, 0, 1)), w = clamp((t - 3.4) / 12, 0, 1);
+              const far = V(LV.fire.x + 1.2, P.y + 5.2, LV.fire.z + 10.5), near = V(LV.fire.x + 0.6 - w * 1.4, P.y + 2.6 - w * 0.4, LV.fire.z + 7.6 - w * 1.6);
+              const atFar = V(-1.6, P.y + 0.3, -3.8), atNear = V(LV.fire.x, P.y + 1.0, LV.fire.z + 0.4);
+              return [far.lerp(near, u), atFar.lerp(atNear, u)];
+            },
+          },
+          // Джек и Мия садятся в машину и уезжают; Папа идёт за ветками
+          leave: {
+            hour: 18.3,
+            events: [
+              [0, () => {
+                const a = actors, car = a.car;
+                a.drive = makeDrive(car, LEAVE); a.drive.hold = true;
+                a.misha.faceTo = [LV.fire.x, LV.fire.z];
+                a.papa.faceTo = [car.position.x, car.position.z];
+                enterCar(a.jack, car, 1, () => later(0.8, () => { Sound.play('starter'); later(1.1, () => { a.drive.engine = true; carLights(car, true); later(0.9, () => { a.drive.hold = false; }); }); }));
+                later(0.6, () => enterCar(a.mia, car, 0));
+              }],
+              [4.5, () => { go(actors.papa, [[-2.4, 4.6, 99]], 1.6); actors.papa.faceTo = null; }],
+            ],
+            cam: (k, t) => {
+              const c = actors.car.position;
+              actors.look.lerp(V(c.x, c.y + 1, c.z), 0.05);
+              return [V(5.2, P.y + 2.1, 6.6 - k * 0.6), actors.look];
+            },
+          },
+          // Оборачивается — у костра никого. Где-то вдалеке хлопает дверь машины
+          gone: {
+            hour: 18.45,
+            events: [
+              [0, () => {
+                const a = actors;
+                a.car.visible = false; a.misha.visible = false; a.drive = null; Sound.loop('car', 0, 0);
+                a.papa.x = -2.4; a.papa.z = 4.6; a.papa.face = -2.4; go(a.papa, []);
+                a.sticks.visible = true;
+              }],
+              [0.5, () => Sound.play('doorClose', 0.12)],
+              [1.0, () => Sound.loop('far', 0.22, 0.3)],
+              [1.2, () => { actors.papa.faceTo = [LV.fire.x, LV.fire.z]; }],
+              [2.0, () => go(actors.papa, [[-1.4, 3.4]], 1.4)],
+              [3.2, () => { actors.sticks.visible = false; Sound.play('pick'); }],
+              [3.8, () => Sound.loopStop('far')],
+            ],
+            cam: (k, t) => {
+              const p = actors.papa, a = 1.9 + t * 0.12;
+              return [V(p.x + Math.cos(a) * 3.4, P.y + 1.8, p.z + Math.sin(a) * 3.4), V(p.x, P.y + 1.3, p.z)];
+            },
+          },
+          // Звонит Джеку: достаёт телефон, набирает, слушает гудки
+          phone: {
+            hour: 18.6,
+            events: [
+              [0, () => {
+                const a = actors.papa;
+                a.x = P.x; a.z = P.z; a.face = 0.9; a.faceTo = null; go(a, []);
+                actors.torch.visible = false;
+                actors.ph = { a: 'pocket', b: 'face', t0: 0, dur: 0.8 };
+              }],
+              [0.9, () => { Sound.play('tap'); PhoneUI.show('Джек', 'Вызов…', 'ring'); }],
+              [1.2, () => Sound.play('tap')],
+              [1.6, () => { actors.ph = { a: 'face', b: 'ear', t0: 1.6, dur: 0.7 }; }],
+              [2.4, () => Sound.play('ringback')],
+              [5.4, () => { if (!actors.said10) Sound.play('ringback'); }],
+            ],
+            cam: (k, t) => {
+              hero.g.updateMatrixWorld();
+              const push = clamp(t / 14, 0, 1);
+              return [hero.g.localToWorld(V(1.25 - push * 0.3, 1.75, 1.55 - push * 0.4)), hero.g.localToWorld(V(0.1, 1.62, 0))];
+            },
+          },
         },
         setup() {
+          const a = actors;
           const car = Level.makeCar(0x3f6f8f, false);
           group.add(car);
-          actors.car = car;
-          actors.misha = npc(MISHA_MATS, (h) => h.g.scale.setScalar(0.92));
-          actors.jack = npc(JACK_MATS, (h) => {
+          a.car = car;
+          a.drive = makeDrive(car, ARRIVE);
+          a.drive.engine = true; a.drive.v = 12;
+          a.fx = makeCarFx(group);
+          a.parked = 0;
+          a.look = V(0, 0, 0);
+          a.misha = actor(npc(MISHA_MATS, (h) => h.g.scale.setScalar(0.92)), 0, 0, 0);
+          a.jack = actor(npc(JACK_MATS, (h) => {
             const beard = new THREE.Mesh(roundedBox(0.42, 0.16, 0.12, 0.05), std(0x5a3a22)); beard.position.set(0, -0.17, 0.2); h.head.add(beard);
             const cap = new THREE.Mesh(roundedBox(0.5, 0.12, 0.5, 0.05), std(0x2a3a5a)); cap.position.y = 0.26; h.head.add(cap);
-          });
-          actors.mia = npc(MIA_MATS, (h) => {
+            // Ключи от машины на пальце
+            const keys = new THREE.Group();
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.008, 6, 14), std(0xc0c4c8, { metalness: 0.7, roughness: 0.3 }));
+            keys.add(ring);
+            for (const [x, r] of [[0.02, 0.4], [-0.02, -0.5]]) { const k = new THREE.Mesh(roundedBox(0.025, 0.08, 0.008, 0.004), std(0xc9a23a, { metalness: 0.6, roughness: 0.4 })); k.position.set(x, -0.07, 0); k.rotation.z = r; keys.add(k); }
+            keys.position.set(0, -0.38, 0.05); keys.visible = false;
+            h.foreR.add(keys); h.keys = keys;
+          }), 0, 0, 0);
+          a.mia = actor(npc(MIA_MATS, (h) => {
             const hair = std(0x2a1a12);
             const top = new THREE.Mesh(roundedBox(0.5, 0.14, 0.5, 0.06), hair); top.position.y = 0.22; h.head.add(top);
             const back = new THREE.Mesh(roundedBox(0.48, 0.55, 0.1, 0.05), hair); back.position.set(0, -0.05, -0.24); h.head.add(back);
             h.g.scale.setScalar(0.95);
-          });
-          const at = (h, x, z, face) => { h.g.position.set(x, getHeight(x, z), z); h.g.rotation.y = face; };
-          at(actors.misha, -1.1, 1.6, 2.4);
-          at(actors.jack, 2.6, 2.4, -2.6);
-          at(actors.mia, 3.3, 0.2, -1.7);
-          for (const k of ['misha', 'jack', 'mia']) animateHuman(actors[k], 0, 0, false, false);
-          P.face = 0.9;
-          camFire(true);
+          }), 0, 0, 0);
+          a.papa = actor(hero, P.x, P.z, 0.9);
+          for (const k of ['papa', 'misha', 'jack', 'mia']) a[k].visible = false;
+          a.torch = makeTorch(); handR.add(a.torch);
+          a.sticks = makeSticks(); handR.add(a.sticks);
+          L1.tent.visible = false;
+          for (const c of campfires.slice()) if (c.story) removeCampfire(c);
         },
         update(dt, line, t) {
-          const car = actors.car;
-          if (line.shot === 'drive') {
-            // Машина подъезжает по дороге к лагерю и останавливается
-            placeCar(car, lerp(0.3, 0.02, smooth(clamp(t / 7.5, 0, 1))), true);
-            for (const k of ['misha', 'jack', 'mia']) actors[k].g.visible = false;
-            hero.g.visible = false;
-          } else if (line.shot === 'camp') {
-            car.position.set(PARK.x, getHeight(PARK.x, PARK.z), PARK.z); car.rotation.y = -0.6;
-            for (const k of ['misha', 'jack', 'mia']) actors[k].g.visible = true;
-            hero.g.visible = true;
-          } else if (line.shot === 'leave') {
-            actors.jack.g.visible = actors.mia.g.visible = false;
-            placeCar(car, smooth(clamp(t / 6, 0, 1)) * 0.35 + 0.005, false);
-          } else {
-            actors.misha.g.visible = false;
-            car.visible = false;
+          const a = actors, D = a.drive;
+          carTick(dt);
+          // Машина встала: мотор глохнет, двери открываются, все выходят
+          if (curShot() === 'arrive' && D.done) {
+            const was = a.parked;
+            a.parked += dt;
+            if (was < 0.5 && a.parked >= 0.5) { D.engine = false; }
+            if (was < 0.8 && a.parked >= 0.8) {
+              const car = a.car;
+              exitCar(a.papa, car, 1, [[-3.2, 0.2], [P.x - 0.6, P.z - 0.4]]);
+              later(0.25, () => exitCar(a.misha, car, 2, [[-5.4, -5.2], [-3.2, -8.8]], 4.6));
+              later(0.6, () => exitCar(a.jack, car, 0, [[-7.6, 2.4]]));
+              later(0.9, () => exitCar(a.mia, car, 3, [[-9.4, -3.4]]));
+              a.papa.faceTo = [-4, -4]; a.jack.faceTo = [P.x, P.z]; a.mia.faceTo = [P.x, P.z];
+            }
           }
-          // Миша и взрослые немного двигаются, пока стоят у костра
-          const sway = Math.sin(W.clock * 1.3) * 0.05;
-          for (const k of ['misha', 'jack', 'mia']) { actors[k].head.rotation.y = sway; actors[k].armR.rotation.x = Math.sin(W.clock * 0.9 + k.length) * 0.1; }
-          if (line.id === 'L1-03' || line.id === 'L1-04') actors.jack.armR.rotation.x = -0.9 + Math.sin(W.clock * 8) * 0.1;
+          if (curShot() === 'camp') {
+            // Палатка «вырастает» во время ускоренной съёмки
+            const g = smooth(clamp((t - 0.4) / 2.0, 0, 1));
+            L1.tent.scale.set(lerp(0.6, 1, g), Math.max(0.02, g * (1 + Math.sin(g * 9) * 0.08 * (1 - g))), lerp(0.6, 1, g));
+          }
+          // Бегает по поляне с фонариком и зовёт
+          if (line.id === 'L1-08' && curShot() === 'gone' && !waiting && !a.ran) { a.ran = true; go(a.papa, [[-6.5, 7], [-10, 2.5, 0.01], [-5.5, -3.5]], 3.4); }
+          for (const k of ['papa', 'misha', 'jack', 'mia']) stepActor(a[k], dt);
+          talkPose(line);
+          // Мия хватается за голову: «Мы же забыли продукты»
+          if (line.id === 'L1-03' && !waiting) {
+            const k = smooth(clamp(lineT / 0.5, 0, 1)) * (1 - smooth(clamp((lineT - 2.6) / 0.6, 0, 1)));
+            reach(a.mia.h, false, V(-0.08, 1.1, 0.26), V(-1, -0.3, 0.2), k);
+          }
+          // Джек крутит ключи на пальце
+          a.jack.h.keys.visible = line.id === 'L1-04';
+          if (line.id === 'L1-04') {
+            reach(a.jack.h, true, V(0.26, 0.86, 0.32), V(1, -1, 0), smooth(clamp(lineT / 0.4, 0, 1)));
+            a.jack.h.keys.rotation.x = -W.clock * 14;
+          }
         },
         pose(line, t) {
-          animateHuman(hero, 0, 0, false, false);
-          if (line.shot === 'leave') {
-            // Нагибается за ветками
-            const k = smooth(clamp(t / 1.2, 0, 1));
-            hero.upper.rotation.x = 0.75 * k; hero.armR.rotation.x = -1.1 * k; hero.armL.rotation.x = -0.6 * k;
-          } else if (line.shot === 'gone') {
-            // Оглядывается по сторонам
-            P.face = 0.9 + Math.sin(t * 1.4) * 1.3;
-            hero.head.rotation.y = Math.sin(t * 2.3) * 0.4;
-            if (line.id === 'L1-08') hero.armL.rotation.x = -1.4 + Math.sin(W.clock * 10) * 0.05;
-          } else if (line.shot === 'phone') {
-            hero.armR.rotation.x = -2.1; hero.armR.rotation.z = -0.7; handR.rotation.x = 1.3;
-            P.face = 0.9;
-            if (line.id === 'L1-11') { const k = smooth(clamp(t / 1.5, 0, 1)); hero.armR.rotation.x = -2.1 + 1.6 * k; hero.head.rotation.x = 0.3 * k; }
+          const a = actors.papa;
+          heroPropsOff();
+          hero.g.rotation.y = a.face;
+          phoneMesh.visible = false;
+          if (curShot() === 'gone') {
+            if (actors.sticks.visible) { reach(hero, true, V(0.2, 0.42, 0.32), V(1, -1, 0), 1); orientHand(hero, handR, STICKS_Q); }
+            if (line.id === 'L1-07') hero.head.rotation.y = Math.sin(lineT * 2.4) * 0.5;
+            if (line.id === 'L1-08') {
+              // Фонарик вперёд, второй рукой зовёт, сложив ладонь у рта
+              actors.torch.visible = true;
+              reach(hero, true, V(0.24, 0.6, 0.46), V(1, -1, -0.2), 1);
+              orientHand(hero, handR, TORCH_Q);
+              if (!a.moving) reach(hero, false, V(-0.1, 0.86, 0.3), V(-1, -1, 0), 1);
+              hero.head.rotation.y = Math.sin(lineT * 1.7) * 0.35;
+            }
+          } else actors.torch.visible = false;
+          if (curShot() === 'phone' && actors.ph) {
+            const ph = actors.ph;
+            phoneMesh.visible = true;
+            PH.pose(hero, handR, ph.a, ph.b, (shotT - ph.t0) / ph.dur);
+            if (line.id === 'L1-10') {
+              // Слушает, замер; второй рукой хватается за голову
+              actors.said10 = true;
+              reach(hero, false, V(-0.14, 0.98, 0.26), V(-1, -0.8, 0.2), smooth(clamp((lineT - 0.8) / 0.8, 0, 1)) * 0.8);
+            }
+            if (line.id === 'L1-11') hero.head.rotation.x = Math.max(hero.head.rotation.x, 0.2 + smooth(clamp(lineT / 2, 0, 1)) * 0.25);
           }
-          phoneMesh.visible = line.shot === 'phone';
-          hero.g.position.set(P.x, P.y, P.z);
         },
         end() {
           camFire(true);
+          L1.tent.visible = true; L1.tent.scale.set(1, 1, 1);
           hero.g.visible = true;
           phoneMesh.visible = false;
           P.face = 2.4;
@@ -4363,56 +5325,92 @@
       ending: {
         endTitle: 'Уровень 1 <span class="lit">пройден</span>',
         lines: [
-          { id: 'L1-29', shot: 'start' },
-          { id: 'L1-30', shot: 'lights' },
+          { id: 'L1-29', shot: 'start', waitFor: () => shotT > 2.0, minT: 5.6 },
+          { id: 'L1-30', shot: 'lights', minT: 9.5 },
         ],
         shots: {
-          start: { hour: 21.2, cam: (t) => { const c = L1.car.position; return [V(c.x + 3, c.y + 1.9, c.z + 4.5 - t), V(c.x, c.y + 1, c.z)]; } },
-          lights: { hour: 21.3, cam: (t) => { const c = actors.car.position; return [V(c.x - 9 - t * 3, c.y + 3, c.z - 6), V(c.x, c.y + 1, c.z)]; } },
+          // Садится, поворачивает ключ: стартер крутит, со второго раза мотор заводится
+          start: {
+            hour: 21.2,
+            events: [
+              [0, () => {
+                const a = actors, car = a.car;
+                const p = carPt(car, 0.14 - 0.3, -2.2);
+                a.papa.x = p[0]; a.papa.z = p[1]; a.papa.visible = true;
+                enterCar(a.papa, car, 1);
+              }],
+              [2.2, () => Sound.play('starter')],
+              [4.0, () => Sound.play('starter')],
+              [4.9, () => { actors.drive.engine = true; carLights(actors.car, true); }],
+            ],
+            cam: (k, t) => [loc(actors.car, 4.4 - t * 0.12, 1.75, -4.2), loc(actors.car, 0, 1.0, -0.8)],
+          },
+          // Фары освещают лес, из темноты выходят твари; машина срывается с места
+          lights: {
+            hour: 21.3,
+            events: [[0, () => { actors.drive.hold = false; }]],
+            cam: (k, t) => {
+              const car = actors.car, u = smooth(clamp((t - 3.6) / 1.4, 0, 1));
+              const gx = LV.camp.x - LV.camp.hw - 4.5, gz = LV.camp.z - 7.5;
+              const fixed = V(gx, getHeight(gx, gz) + 2.3, gz), fixedAt = V(car.position.x, car.position.y + 1, car.position.z);
+              return [fixed.lerp(loc(car, -7.8, 2.7, 0), u), fixedAt.lerp(loc(car, 5, 1.1, 0), u)];
+            },
+          },
         },
         setup() {
+          const a = actors;
           // На месте сломанной — целая машина с фарами
           const car = Level.makeCar(0x8a2f2a, false);
-          car.position.copy(L1.car.position); car.rotation.y = L1.car.rotation.y;
-          L1.car.visible = false;
           group.add(car);
-          actors.car = car;
-          actors.t0 = 0;
-          // Твари выходят из темноты
-          actors.zs = [];
-          for (let k = 0; k < 3; k++) {
+          a.car = car;
+          const x0 = L1.car.position.x, z0 = L1.car.position.z;
+          const fx = Math.cos(L1.car.rotation.y), fz = -Math.sin(L1.car.rotation.y);
+          // Задом с поворотом, потом вперёд через ворота и к мосту
+          const gx = LV.camp.x - LV.camp.hw, gz = LV.camp.z, be = bridgeEnds();
+          a.drive = makeDrive(car, [
+            { pts: [[x0, z0], [x0 - fx * 2.2, z0 - fz * 2.2], [x0 - fx * 4 + 1.6, z0 - fz * 4 + 0.6], [x0 - fx * 5 + 3.4, z0 - fz * 5 + 1.2]], rev: true, vmax: 2.8, wait: 0.5 },
+            { pts: [[x0 - fx * 5 + 3.4, z0 - fz * 5 + 1.2], [x0 - fx * 4.6 + 0.6, z0 - fz * 4.6 + 1.2], [gx + 3.5, gz + 4.2], [gx, gz], [gx - 12, gz - 1.5], [be.e + 4, LV.bridgeZ], [be.w - 6, LV.bridgeZ], [be.w - 30, LV.bridgeZ - 4]], vmax: 12 },
+          ]);
+          a.drive.hold = true;
+          a.fx = makeCarFx(group);
+          L1.car.visible = false;
+          a.papa = actor(hero, P.x, P.z, P.face);
+          // Твари выходят из темноты навстречу фарам
+          a.zs = [];
+          for (const [x, zz, ph] of [[gx - 6, gz + 3.2, 0], [gx - 9, gz - 2.6, 1], [gx - 13, gz - 1.0, 2]]) {
             const z = makeHuman(ZOMBIE_MATS, 'zombie');
             for (const ex of [-0.095, 0.095]) { const eye = new THREE.Mesh(roundedBox(0.09, 0.07, 0.03, 0.015), MAT.eye); eye.position.set(ex, 0.04, 0.224); z.head.add(eye); }
-            const x = car.position.x - 14 - k * 2, zz = car.position.z - 5 + k * 4;
             z.g.position.set(x, getHeight(x, zz), zz); z.g.rotation.y = Math.PI / 2;
             group.add(z.g);
-            actors.zs.push({ h: z, x, z: zz, ph: k });
+            a.zs.push({ h: z, x, z: zz, ph, vx: 0, vz: 0, fall: 0 });
           }
         },
         update(dt, line, t) {
-          const car = actors.car;
-          for (const z of actors.zs) {
-            z.ph += dt * 1.6; z.x += dt * 0.8;
+          const a = actors;
+          carTick(dt);
+          stepActor(a.papa, dt);
+          const car = a.car.position;
+          for (const z of a.zs) {
+            if (z.fall > 0) {
+              // Машина сбила тварь: отлетает в сторону и падает
+              z.fall += dt;
+              z.x += z.vx * dt; z.z += z.vz * dt; z.vx *= Math.exp(-dt * 3); z.vz *= Math.exp(-dt * 3);
+              z.h.g.rotation.x = -Math.min(1, z.fall / 0.35) * Math.PI / 2;
+              z.h.g.position.set(z.x, getHeight(z.x, z.z) + 0.25 * Math.min(1, z.fall / 0.35), z.z);
+              continue;
+            }
+            const dx = car.x - z.x, dz = car.z - z.z, d = Math.hypot(dx, dz) || 1;
+            if (d < 2.3 && Math.abs(a.drive.v) > 3) {
+              z.fall = 1e-3; Sound.play('hit');
+              const side = Math.sign((z.z - car.z) || 1);
+              z.vx = -dx / d * 4; z.vz = side * 6;
+            } else if (d > 1.6) { z.x += dx / d * dt * 0.9; z.z += dz / d * dt * 0.9; z.h.g.rotation.y = Math.atan2(dx, dz); }
+            z.ph += dt * 1.8;
             const bob = animateHuman(z.h, z.ph, 0.8, true, false);
             z.h.g.position.set(z.x, getHeight(z.x, z.z) + bob, z.z);
           }
-          if (line.shot === 'start') hero.g.visible = t < 1.2;
-          else {
-            hero.g.visible = false;
-            // Машина срывается с места к воротам
-            actors.t0 += dt;
-            const k = smooth(clamp(actors.t0 / 5, 0, 1));
-            const g = { x: LV.camp.x - LV.camp.hw - 12, z: LV.camp.z };
-            car.position.x = lerp(L1.car.position.x, g.x, k);
-            car.position.z = lerp(L1.car.position.z, g.z, k);
-            car.position.y = getHeight(car.position.x, car.position.z);
-          }
         },
-        pose(line, t) {
-          animateHuman(hero, 0, 0, false, false);
-          hero.armR.rotation.x = -0.9; hero.armL.rotation.x = -0.8;
-          hero.g.position.set(P.x, P.y, P.z);
-        },
+        pose() { heroPropsOff(); hero.g.rotation.y = actors.papa.face; },
         end() {
           L1.car.visible = true;
           hero.g.visible = true;
@@ -4421,7 +5419,6 @@
       },
     };
 
-    const camFrom = new THREE.Vector3(), camAt = new THREE.Vector3();
     function camFire(on) {
       // Костёр в нашем лагере горит всю первую ночь
       if (!on || campfires.some((c) => c.story)) return;
@@ -4432,7 +5429,7 @@
 
     function play(name) {
       S = SCRIPTS[name];
-      done = false; i = 0; shot = null; titleT = -1; actors = {};
+      done = false; i = 0; shot = null; titleT = -1; actors = {}; timers = []; evDone = new Set();
       group = new THREE.Group();
       surface.add(group);
       S.setup();
@@ -4451,7 +5448,11 @@
       i = n;
       const L = S.lines[i];
       if (!shot || L.shot !== shot.name) {
-        const change = () => { shot = Object.assign({ name: L.shot }, S.shots[L.shot]); shotT = 0; shotLen = S.lines.filter((x) => x.shot === L.shot).length * 4.5; };
+        const change = () => {
+          shot = Object.assign({ name: L.shot }, S.shots[L.shot]);
+          shotT = 0; evDone = new Set();
+          shotLen = S.lines.filter((x) => x.shot === L.shot).length * 4.5;
+        };
         if (first || !shot) change();
         else { const f = $('fade'); f.classList.add('on'); setTimeout(() => { change(); setTimeout(() => f.classList.remove('on'), 80); }, 330); }
       }
@@ -4462,7 +5463,17 @@
       el.next.classList.remove('show');
       el.title.classList.toggle('show', !!L.title);
       chars = 0; lineT = 0;
+      // Реплика ждёт своего момента в сцене (машина остановилась, герой обернулся)
+      waiting = !!L.waitFor;
+      el.who.style.visibility = waiting ? 'hidden' : '';
+      if (!waiting) startLine(L);
+    }
+    function startLine(L) {
+      waiting = false;
+      el.who.style.visibility = '';
+      lineT = 0;
       if (L.who && /телефон/.test(L.who)) Sound.play('radio');
+      if (L.onShow) L.onShow();
       Voice.play(L.id);
     }
     const lineText = () => LINES[S.lines[i].id][1];
@@ -4471,6 +5482,8 @@
       if (done) return;
       // Тап по финальной надписи закрывает сцену (после короткой паузы)
       if (titleT >= 0) { if (titleT > 0.6) finish(); return; }
+      const L = S.lines[i];
+      if (waiting) { startLine(L); return; }
       const text = lineText();
       if (chars < text.length) { chars = text.length; el.text.textContent = text; return; }
       if (i + 1 < S.lines.length) showLine(i + 1);
@@ -4489,7 +5502,7 @@
       el.root.classList.add('out');
       el.root.classList.remove('on');
       el.title.classList.remove('show');
-      if (group) { surface.remove(group); group = null; }
+      cleanup();
       setTimeout(() => { el.root.hidden = true; }, 450);
       hero.g.rotation.x = 0;
       camBlend = 1.6;
@@ -4497,47 +5510,67 @@
       showScreen('game');
       if (end) end();
     }
+    function cleanup() {
+      if (group) { surface.remove(group); group = null; }
+      if (actors.torch) handR.remove(actors.torch);
+      if (actors.sticks) handR.remove(actors.sticks);
+      timers = [];
+      Sound.loopStop('car'); Sound.loopStop('far');
+      PhoneUI.hide();
+      handR.rotation.set(0, 0, 0);
+    }
 
     function update(dt) {
       if (done) return;
       W.clock += dt;
       shotT += dt;
+      for (let k = timers.length - 1; k >= 0; k--) { const tm = timers[k]; tm.t -= dt; if (tm.t <= 0) { timers.splice(k, 1); tm.fn(); } }
+      if (shot && shot.events) shot.events.forEach((ev, k) => { if (!evDone.has(k) && shotT >= ev[0]) { evDone.add(k); ev[1](); } });
+      const L = S.lines[i];
+      if (S.update) S.update(dt, L, shotT);
       if (titleT >= 0) { titleT += dt; if (titleT > 2.6) finish(); return; }
-      const L = S.lines[i], text = lineText();
+      // Пока идёт смена плана, реплика ждёт
+      if (!shot || shot.name !== L.shot) return;
+      if (waiting) { if (L.waitFor()) startLine(L); else return; }
+      const text = lineText();
       lineT += dt;
       if (chars < text.length) {
         chars = Math.min(text.length, chars + dt * 34);
         el.text.textContent = text.slice(0, Math.floor(chars));
       } else {
         el.next.classList.add('show');
-        if (lineT > text.length / 34 + 2.4 + text.length * 0.02) advance();
+        if (lineT > text.length / 34 + 2.4 + text.length * 0.02 && (!L.minT || shotT >= L.minT)) advance();
       }
-      if (S.update) S.update(dt, L, shotT);
     }
     function pose() { if (!done && S.pose) S.pose(S.lines[i], shotT); }
     function cameraUpdate() {
       if (!shot) return;
       const t = clamp(shotT / shotLen, 0, 1);
-      const [from, at] = shot.cam(smooth(t));
+      const [from, at] = shot.cam(smooth(t), shotT);
       camera.position.copy(from);
       camera.position.y = Math.max(camera.position.y, getHeight(from.x, from.z) + 0.6);
       camera.lookAt(at);
     }
     function clear() {
-      if (group) { surface.remove(group); group = null; }
+      cleanup();
       el.root.hidden = true;
       el.root.classList.remove('on', 'out');
       for (const c of campfires.slice()) if (c.story) removeCampfire(c);
+      if (L1.tent) { L1.tent.visible = true; L1.tent.scale.set(1, 1, 1); }
+      if (L1.car) L1.car.visible = true;
       done = true;
     }
 
     el.root.addEventListener('pointerup', (e) => { if (!e.target.closest('#introSkip')) advance(); });
-    el.skip.addEventListener('click', () => { if (titleT < 0 && S && S.endTitle) { i = S.lines.length - 1; chars = 1e9; advance(); } else finish(); });
+    el.skip.addEventListener('click', () => {
+      if (titleT < 0 && S && S.endTitle) { i = S.lines.length - 1; waiting = false; chars = 1e9; lineT = 0; advance(); } else finish();
+    });
     return {
       start: () => play('intro'), play, update, pose, cameraUpdate, clear, skip: () => el.skip.click(), next: advance,
-      hour: () => (shot && shot.hour) || hourNow(),
+      hour: () => { const h = shot && shot.hour; return typeof h === 'function' ? h(shotT) : h || hourNow(); },
       fog() { if (shot && shot.fog) { scene.fog.near = shot.fog[0]; scene.fog.far = shot.fog[1]; } },
       active: () => screen === 'intro',
+      debug: () => ({ i, id: S && S.lines[i].id, shot: shot && shot.name, shotT, lineT, waiting, titleT, done }),
     };
   })();
 
@@ -4570,7 +5603,9 @@
     } else if (screen === 'intro') {
       Intro.update(dt);
     }
+    if (screen !== 'game') Sound.loop('gen', 0, 0);
 
+    PhoneUI.update(dt);
     hero.g.rotation.y = P.face;
     if (screen === 'intro') {
       Intro.pose();
@@ -4606,7 +5641,7 @@
         hero.armL.rotation.x -= 0.35 * k; hero.armR.rotation.x -= 0.35 * k;
       }
       applyAnim();
-      if (P.phone && !P.anim) { hero.armR.rotation.x = -2.1; hero.armR.rotation.z = -0.7; handR.rotation.x = 1.3; }
+      phonePoseGame(dt);
       dy += animPose.dy;
       const fw = forward();
       hero.g.position.set(P.x + fw.x * animPose.lunge, P.y + dy, P.z + fw.z * animPose.lunge);
@@ -4664,10 +5699,16 @@
       equip(w) { P.weapon = w; refreshEquipment(); },
       anim(name) { playAnim(name); },
       introNext() { Intro.next(); },
+      intro() { return Intro.debug(); },
+      h(x, z) { return getHeight(x, z); },
+      // Прокрутить сцену вперёд без отрисовки (для проверки кадров)
+      step(sec) { for (let t = 0; t < sec; t += 1 / 30) { if (screen === 'intro') { Intro.update(1 / 30); hero.g.rotation.y = P.face; Intro.pose(); } else if (screen === 'game') { updateClock(1 / 30); updateZombies(1 / 30); Level.update(1 / 30); } } },
       zombie() { spawnZombieAt(P.x + Math.sin(P.face) * 2, P.z + Math.cos(P.face) * 2, !!inCave); },
       get zombies() { return zombies; },
       bridge() { return bridgeEnds(); },
       chests() { return L1.chests.map((c) => { const bd = L1.buildings.find((b) => b.spec.id === c.spec.b); const dx = bd.cx - c.x, dz = bd.cz - c.z, l = Math.hypot(dx, dz) || 1; return { id: c.spec.id, x: c.x, z: c.z, ax: dx / l * 0.9, az: dz / l * 0.9 }; }); },
+      gen() { return { x: L1.gen.x, z: L1.gen.z }; },
+      sleepers() { return zombies.filter((z) => z.sleeper && !z.dead).map((z) => ({ id: z.sleeper, x: +z.x.toFixed(1), z: +z.z.toFixed(1), dormant: !!z.dormant, inside: L1.buildings.some((b) => b.inside(z.x, z.z)) })); },
       skladDoor() { const sk = L1.buildings.find((b) => b.spec.id === 'sklad'); return { x: sk.doorBox.x - 1.0, z: sk.cz }; },
       carPos() { return { x: L1.car.position.x, z: L1.car.position.z }; },
       breakdown() {
