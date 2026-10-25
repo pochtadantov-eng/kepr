@@ -182,6 +182,23 @@
     font-size: 12px; color: var(--muted); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
   }
   @media (pointer: coarse) { #keys { display: none; } }
+  #quest {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    top: calc(10px + max(env(safe-area-inset-top, 0px), var(--cut-t, 0px)));
+    max-width: min(46vw, 420px); padding: 6px 14px; border-radius: 12px; text-align: center;
+    background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px;
+  }
+  #questTitle { font-size: 13px; font-weight: 700; color: var(--ember); }
+  #questSub { font-size: 11px; color: var(--muted); }
+  #say {
+    position: absolute; left: 50%; transform: translate(-50%, 8px);
+    bottom: calc(70px + max(env(safe-area-inset-bottom, 0px), var(--cut-b, 0px)));
+    width: min(calc(100% - 340px), 620px); min-width: 240px; text-align: center; opacity: 0; transition: opacity 0.35s, transform 0.35s;
+    padding: 8px 14px; border-radius: 12px; background: rgba(10, 8, 6, 0.62);
+  }
+  #say.show { opacity: 1; transform: translate(-50%, 0); }
+  #sayWho { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ember); }
+  #sayText { margin: 2px 0 0; font-size: 14px; line-height: 1.35; color: var(--ink); text-wrap: balance; }
   #actHint {
     position: absolute; left: 50%; transform: translateX(-50%);
     bottom: calc(22px + max(env(safe-area-inset-bottom, 0px), var(--cut-b, 0px)));
@@ -411,6 +428,8 @@
     </button>
     <div class="chip sub">Убито <b id="kills">0</b></div>
   </div>
+  <div id="quest"><b id="questTitle">Найти Мишу</b><span id="questSub"></span></div>
+  <div id="say"><span id="sayWho"></span><p id="sayText"></p></div>
   <div id="toasts"></div>
   <div id="joy" hidden><div id="knob"></div></div>
   <div id="controls">
@@ -551,6 +570,17 @@
 </div>
 
 <div id="fade"></div>
+
+<div id="levelDone" class="overlay" hidden>
+  <div class="card">
+    <h1>Уровень 1 <span class="lit">пройден</span></h1>
+    <p class="lead">Ты выбрался из леса. Миша где-то там, и Джек знает где. Уровень 2 появится в следующих версиях.</p>
+    <div class="menu-buttons">
+      <button class="btn primary" id="btnLevelGo" type="button">Продолжить выживание</button>
+      <button class="btn" id="btnLevelMenu" type="button">Главное меню</button>
+    </div>
+  </div>
+</div>
 
 <div id="dead" class="overlay" hidden>
   <div class="card">

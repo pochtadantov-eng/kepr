@@ -43,7 +43,7 @@
     { id: 'wall', name: 'Стена', cost: { wood: 4 }, desc: 'Зомби придётся её ломать' },
   ];
   const KEYS = { save: 'dolgaya-noch-save', stats: 'dolgaya-noch-stats', settings: 'dolgaya-noch-settings', oldBest: 'dolgaya-noch-best' };
-  const SAVE_VERSION = 2;
+  const SAVE_VERSION = 3;
 
   const $ = (id) => document.getElementById(id);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -241,6 +241,7 @@
         for (let i = 0; i < 4; i++) noise({ dur: 0.02, type: 'highpass', freq: 3000, gain: 0.08, delay: 0.05 + Math.random() * 0.35 });
         tone({ freq: 1250, dur: 0.05, gain: 0.04, delay: 0.42, type: 'square', lowpass: 2500 });
       },
+      ring() { for (let k = 0; k < 2; k++) { tone({ freq: 440, dur: 0.38, gain: 0.07, delay: k * 0.5, type: 'triangle' }); tone({ freq: 480, dur: 0.38, gain: 0.06, delay: k * 0.5, type: 'triangle' }); } },
       whoosh() { noise({ dur: 1.4, type: 'bandpass', freq: 400, freqEnd: 1400, q: 0.6, gain: 0.12, attack: 0.5 }); },
     };
 
@@ -495,11 +496,6 @@
     // Ровная поляна вокруг старта
     const dc = Math.hypot(x, z);
     if (dc < 42) h = lerp(3.2 + hills * 0.12, h, smoothstep(16, 42, dc));
-    // Пруд рядом со стартом, чтобы вода была близко
-    const ang = Math.atan2(z - POND.z, x - POND.x);
-    const pr = POND.r * (0.75 + vnoise(Math.cos(ang) * 2 + 5, Math.sin(ang) * 2 + 5, 61) * 0.6);
-    const dp = Math.hypot(x - POND.x, z - POND.z);
-    if (dp < pr * 1.7) h = Math.min(h, lerp(-3, h, smoothstep(pr * 0.6, pr * 1.6, dp)));
     // Горы по краю карты
     const edge = Math.max(Math.abs(x), Math.abs(z));
     // Край карты — широкий пологий вал с ровной вершиной
@@ -590,7 +586,7 @@
   const TC = {
     sandWet: new THREE.Color(0xa8946a), sand: new THREE.Color(0xdcc893), deep: new THREE.Color(0x5b5444),
     meadow: new THREE.Color(0x8fc057), grass: new THREE.Color(0x72a84a), forest: new THREE.Color(0x4a7a35),
-    dry: new THREE.Color(0xa9b25c), rock: new THREE.Color(0x8d877e), rockDark: new THREE.Color(0x67625b), snow: new THREE.Color(0xf1f4f7),
+    dry: new THREE.Color(0xa9b25c), dirt: new THREE.Color(0x8a6e4a), campGround: new THREE.Color(0xb59a6c), rock: new THREE.Color(0x8d877e), rockDark: new THREE.Color(0x67625b), snow: new THREE.Color(0xf1f4f7),
   };
   const tmpC = new THREE.Color();
   function terrainColor(x, z, h, slope, out) {
@@ -624,7 +620,10 @@
   function buildTerrain() {
     for (let r = 0; r < N1; r++) for (let c = 0; c < N1; c++) heights[r * N1 + c] = baseHeight(-HALF + c * STEP, -HALF + r * STEP);
     carveRivers(makeRivers(worldRng));
+    Level.buildMask();
+    Level.shapeTerrain();
     smoothHeights(3);
+    Level.recordBridgeStrip();
 
     const geo = new THREE.PlaneGeometry(WORLD.size, WORLD.size, WORLD.seg, WORLD.seg);
     geo.rotateX(-Math.PI / 2);
@@ -633,6 +632,7 @@
       const x = pos.getX(i), z = pos.getZ(i), h = heights[i];
       pos.setY(i, h);
       terrainColor(x, z, h, slopeAt(x, z), c);
+      Level.groundTint(x, z, h, c);
       colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -874,14 +874,14 @@
       return o;
     }
     const nearCave = (x, z) => caveEntrances.some((e) => Math.hypot(e.x - x, e.z - z) < 14);
-    const okGround = (x, z, h, s) => h > 1.7 && s < 0.6 && h < 27 && Math.hypot(x, z) > 9 && !nearCave(x, z);
+    const okGround = (x, z, h, s) => h > 1.7 && s < 0.6 && h < 27 && Math.hypot(x, z) > 9 && !nearCave(x, z) && !Level.noVeg(x, z);
 
     // Деревья трёх видов
     let trees = 0;
     for (let i = 0; i < 45000 && trees < 4600; i++) {
       const x = (rng() * 2 - 1) * (HALF - 4), z = (rng() * 2 - 1) * (HALF - 4);
       const h = getHeight(x, z), s = slopeAt(x, z);
-      if (h < 1.7 || s > 1.05 || h > 41 || Math.hypot(x, z) < 9 || nearCave(x, z)) continue;
+      if (h < 1.7 || s > 1.05 || h > 41 || Math.hypot(x, z) < 9 || nearCave(x, z) || Level.noVeg(x, z)) continue;
       const f = forestK(x, z);
       const p = f > 0.56 ? 0.95 : f > 0.48 ? 0.5 : 0.22;
       if (rng() > p || !isFree(x, z, 3)) continue;
@@ -924,7 +924,7 @@
     for (let i = 0; i < 9000 && rocks < 800; i++) {
       const x = (rng() * 2 - 1) * (HALF - 12), z = (rng() * 2 - 1) * (HALF - 12);
       const h = getHeight(x, z), s = slopeAt(x, z);
-      if (h < 0.6 || s > 0.95 || Math.hypot(x, z) < 9 || nearCave(x, z)) continue;
+      if (h < 0.6 || s > 0.95 || Math.hypot(x, z) < 9 || nearCave(x, z) || Level.noVeg(x, z)) continue;
       const p = h > 14 || s > 0.4 ? 0.6 : 0.09;
       if (rng() > p || !isFree(x, z, 3)) continue;
       occupy(x, z, 3);
@@ -982,7 +982,7 @@
       const n = 6 + Math.floor(rng() * 10);
       for (let k = 0; k < n; k++) {
         const x = cx + (rng() - 0.5) * 7, z = cz + (rng() - 0.5) * 7, hh = getHeight(x, z);
-        if (hh < 1.8) continue;
+        if (hh < 1.8 || Level.noVeg(x, z)) continue;
         const sc = 0.8 + rng() * 0.6, m = matrixOf(x, hh, z, sc, sc, sc, rng() * TAU);
         B.stem.add(m);
         B.petal.add(m, pc);
@@ -1060,6 +1060,7 @@
         const far = d2 > near * near ? Math.sqrt(d2) / near : 1;
         if (far > 1 && hash2(gx, gz, 304) > 1 / (far * far)) continue;
         work++;
+        if (Level.noGrass(x, z)) continue;
         const h = getHeight(x, z);
         if (h < 1.6 || h > 40) continue;
         if (slopeAt(x, z) > 1.1) continue;
@@ -1110,6 +1111,7 @@
       const h = getHeight(x, z), s = slopeAt(x, z);
       if (h < 5 || h > 18 || s < 0.16 || s > 0.85) continue;
       if (Math.hypot(x, z) < 60 || caveEntrances.some((e) => Math.hypot(e.x - x, e.z - z) < 85)) continue;
+      if (Level.noVeg(x, z) || Math.abs(x - Level.riverCX(z)) < 30 || Math.hypot(x - 125, z - 4) < 70) continue;
       // Вход смотрит вниз по склону
       const gx = getHeight(x + 2, z) - getHeight(x - 2, z), gz = getHeight(x, z + 2) - getHeight(x, z - 2);
       const face = Math.atan2(-gx, -gz);
@@ -1235,7 +1237,7 @@
   const CAVE_ZOMBIE_MATS = { skin: std(0x8c93a8), shirt: std(0x3b3346), pants: std(0x2a2a33), belt: std(0x1d1a1f), shoes: std(0x1f1d22), arms: std(0x8c93a8) };
 
   const HAIR = std(0x4a2f1c, { roughness: 0.9 });
-  const hero = makeHuman({ skin: std(0xf0c8a0, { roughness: 0.7 }), shirt: std(0x3a78c9), pants: std(0x2b3448), arms: std(0x3a78c9),
+  const hero = makeHuman({ skin: std(0xf0c8a0, { roughness: 0.7 }), shirt: std(0x4f6b4a), pants: std(0x2b3448), arms: std(0x4f6b4a),
     belt: std(0x5a3b22), shoes: std(0x3b2a1e), hair: HAIR }, 'hero');
   (function heroDetails() {
     const rb = (w, h, d, r, mat, x, y, z, parent) => { const m = new THREE.Mesh(roundedBox(w, h, d, r), mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
@@ -1256,6 +1258,13 @@
   const handR = new THREE.Group();
   handR.position.set(0, -0.72, 0.02);
   hero.armR.add(handR);
+  const phoneMesh = new THREE.Mesh(roundedBox(0.08, 0.16, 0.02, 0.015), std(0x15171a, { roughness: 0.3 }));
+  phoneMesh.position.set(0, -0.04, 0.07);
+  phoneMesh.visible = false;
+  handR.add(phoneMesh);
+  const MISHA_MATS = { skin: std(0xf2cfa8, { roughness: 0.7 }), shirt: std(0x2f5fa8), pants: std(0x3a3f4a), arms: std(0x2f5fa8), belt: std(0x22262e), shoes: std(0xf0f0f0), hair: std(0x6a4a2a) };
+  const JACK_MATS = { skin: std(0xe0b48a, { roughness: 0.7 }), shirt: std(0x9a3b30), pants: std(0x3a3328), arms: std(0x9a3b30), belt: std(0x2a2019), shoes: std(0x3b2a1e), hair: std(0x5a3a22) };
+  const MIA_MATS = { skin: std(0xf2cfb0, { roughness: 0.7 }), shirt: std(0x7a4a9a), pants: std(0x2a2a3a), arms: std(0x7a4a9a), belt: std(0x3a2a3a), shoes: std(0x4a2a2a), hair: std(0x2a1a12) };
   // Меч: клинок ромбовидного сечения сужается к острию, гарда с шариками, обмотанная рукоять, навершие
   function makeSword(o) {
     const s = new THREE.Group();
@@ -1498,6 +1507,7 @@
       hunger: CFG.maxHunger, thirst: CFG.maxThirst,
       slots: new Array(CFG.bag.slots).fill(null), weapon: 'fist', lantern: false, axe: false, flask: CFG.flask, caveCd: 0,
       anim: null, combo: 0, lastAttack: -9, jumpPrep: 0, landT: 0, benchHinted: false,
+      story: Level.freshStory(), phone: false,
       kills: 0, nights: 0, dead: false, deadT: 0,
       walk: 0, walkAmt: 0, stepIdx: 0, actCd: 0, starveWarned: false,
     };
@@ -1548,7 +1558,10 @@
     clearWorld();
     Object.keys(P).forEach((k) => delete P[k]);
     Object.assign(P, freshPlayer());
-    Object.assign(W, { day: 1, night: false, t: CFG.dayLen * 0.15, toSpawn: 0, spawnT: 0, warned: false });
+    // Игра начинается вечером первого дня, как в сценарии
+    Object.assign(W, { day: 1, night: false, t: CFG.dayLen - 50, toSpawn: 0, spawnT: 0, warned: false });
+    Level.applyStory();
+    Say.clear();
     refreshEquipment();
     hero.g.rotation.set(0, 0, 0);
     camYaw = 0.6;
@@ -1558,7 +1571,7 @@
 
   // Что сейчас в руке: предмет текущей анимации, иначе оружие
   function refreshEquipment() {
-    const prop = P.anim ? ANIM[P.anim.name].prop : 'weapon';
+    const prop = P.anim ? ANIM[P.anim.name].prop : P.phone ? 'phone' : 'weapon';
     swordMesh.visible = prop === 'weapon' && P.weapon === 'sword';
     ironSwordMesh.visible = prop === 'weapon' && P.weapon === 'iron';
     axeMesh.visible = prop === 'axe';
@@ -1566,6 +1579,7 @@
     bottleMesh.userData.water.visible = P.flask > 0 || (P.anim && P.anim.name === 'fill' && P.anim.fired);
     berryMesh.visible = prop === 'berry' && P.anim && P.anim.t / P.anim.dur > 0.18 && !P.anim.fired;
     lanternMesh.visible = !!P.lantern;
+    phoneMesh.visible = prop === 'phone';
   }
 
   // ==================================================================
@@ -1583,6 +1597,7 @@
       walls: walls.map((w) => ({ x: w.x, z: w.z, rot: w.rot, hp: w.hp })),
       fires: campfires.map((c) => ({ x: c.x, z: c.z, life: c.life })),
       benches: benches.map((b) => ({ x: b.x, z: b.z, rot: b.rot })),
+      story: JSON.parse(JSON.stringify(P.story)),
       cam: { yaw: camYaw, pitch: camPitch },
     };
   }
@@ -1608,6 +1623,8 @@
       for (const c of data.fires || []) { addCampfire(c.x, c.z); campfires[campfires.length - 1].life = c.life; }
       for (const b of data.benches || []) addBench(b.x, b.z, b.rot);
     }
+    P.story = Object.assign(Level.freshStory(), data.story || {});
+    Level.applyStory();
     P.y = groundY(P.x, P.z);
     Object.assign(W, data.W || {});
     W.toSpawn = data.zombies || 0;
@@ -1823,6 +1840,7 @@
     for (const c of campfires) pushFromCircle(e, c.x, c.z, 0.6);
     for (const b of benches) pushFromCircle(e, b.x, b.z, 0.85);
     for (const w of walls) if (pushFromBox(e, w)) touchedWall = w;
+    Level.collide(e);
     const lim = HALF - 6;
     e.x = clamp(e.x, -lim, lim);
     e.z = clamp(e.z, -lim, lim);
@@ -1908,6 +1926,8 @@
   function context() {
     const z = nearestZombie(CFG.attackReach);
     if (z) return { kind: 'attack', target: z, label: 'Удар' };
+    const lv = inCave ? null : Level.nearInteract();
+    if (lv) return lv;
     const r = nearestResource();
     if (r) return { kind: 'gather', target: r, label: r.cfg.action };
     if (nearWater() && P.flask < CFG.flask) return { kind: 'fill', label: 'Набрать воды' };
@@ -1957,6 +1977,9 @@
         }
       });
       P.actCd = bare ? 1.0 : ANIM[name].dur + 0.06;
+    } else if (ctx.kind === 'use') {
+      Level.use(ctx.target);
+      P.actCd = 0.7;
     } else if (ctx.kind === 'fill') {
       playAnim('fill', () => { P.flask = CFG.flask; Sound.play('drink'); toast('Фляга полна. Нажми «Пить»', 'item'); });
       P.actCd = ANIM.fill.dur + 0.1;
@@ -2686,8 +2709,8 @@
   // ==================================================================
   // Зомби
   // ==================================================================
-  function spawnZombieAt(x, z, inCaveZombie) {
-    const h = makeHuman(inCaveZombie ? CAVE_ZOMBIE_MATS : ZOMBIE_MATS, 'zombie');
+  function spawnZombieAt(x, z, inCaveZombie, mats) {
+    const h = makeHuman(mats || (inCaveZombie ? CAVE_ZOMBIE_MATS : ZOMBIE_MATS), 'zombie');
     for (const ex of [-0.095, 0.095]) {
       const eye = new THREE.Mesh(roundedBox(0.09, 0.07, 0.03, 0.015), inCaveZombie ? MAT.caveEye : MAT.eye);
       eye.position.set(ex, 0.04, 0.224);
@@ -2711,6 +2734,7 @@
       atkCd: 0, walk: rand(0, TAU), dead: false, deadT: 0, burn: false, burnT: 0, hitT: 0, kx: 0, kz: 0,
       groanT: rand(2, 8), bar: { g: bar, fill },
     });
+    return zombies[zombies.length - 1];
   }
 
   function spawnSurfaceZombie() {
@@ -2721,6 +2745,7 @@
       const h = getHeight(x, z);
       if (h < 0.5 || slopeAt(x, z) > 0.8) continue;
       if (Math.hypot(x - P.x, z - P.z) < Z.minD * 0.6) continue;
+      if (!Level.zombieSpotOk(x, z)) continue;
       spawnZombieAt(x, z, false);
       return;
     }
@@ -2816,6 +2841,7 @@
         } else if (z.atkCd <= 0) {
           z.atkCd = Z.cd;
           hurtPlayer(z.dmg, z);
+          Level.onBitten(z);
         }
         z.face = lerpAngle(z.face, Math.atan2(dx, dz), 1 - Math.exp(-dt * 8));
         z.groanT -= dt;
@@ -2860,11 +2886,11 @@
   // День и ночь
   // ==================================================================
   function onNight() {
-    const Z = CFG.zombie;
-    W.toSpawn = Math.min(Z.base + Z.perDay * (W.day - 1), Z.max);
     W.spawnT = 0;
+    Level.onNightStory();
     Sound.play('night');
-    toast('Ночь ' + W.day + '. Зомби выходят на охоту: ' + W.toSpawn, 'bad');
+    if (W.day === 1) toast('Стемнело. Вокруг тихо… слишком тихо', 'warn');
+    else toast('Ночь ' + W.day + '. Из леса выходят твари', 'bad');
   }
   function onDawn() {
     W.toSpawn = 0;
@@ -2875,12 +2901,13 @@
       if (P.nights > stats.best) { stats.best = P.nights; saveStats(); toast('Новый рекорд: ' + stats.best + '!', 'good'); }
       else toast('Рассвет! Ты пережил ночей: ' + P.nights, 'good');
     }
+    Level.onDawnStory();
   }
   function updateClock(dt) {
     W.clock += dt;
     W.t += dt;
     const dur = W.night ? CFG.nightLen : CFG.dayLen;
-    if (!W.night && !W.warned && dur - W.t < 15) { W.warned = true; toast('Скоро стемнеет. Готовь меч и костёр!', 'warn'); }
+    if (!W.night && !W.warned && dur - W.t < 15 && W.day > 1) { W.warned = true; toast('Скоро стемнеет. Готовь меч и костёр!', 'warn'); }
     if (W.t >= dur) {
       W.t -= dur;
       if (W.night) { W.night = false; W.day++; W.warned = false; onDawn(); }
@@ -3105,6 +3132,7 @@
   let camFrac = 1, camBlend = 0;
   function cameraBlocked(x, y, z) {
     if (y < getHeight(x, z) + 0.35) return true;
+    if (Level.blocksCamera(x, y, z)) return true;
     let hit = false;
     gridEach(x, z, 3, (o) => {
       if (hit || !o.active || !o.crown) return;
@@ -3177,6 +3205,7 @@
       if (h < WATER - 0.1) col.setHex(0x3f8fc0).lerp(new THREE.Color(0x1d5f8a), clamp(-h / 3, 0, 1));
       else {
         terrainColor(x, z, h, slopeAt(x, z), col);
+        Level.groundTint(x, z, h, col);
         const shadeK = clamp(1 + (getHeight(x - 2, z - 2) - h) * 0.12, 0.7, 1.25);
         col.multiplyScalar(shadeK);
         if (forestK(x, z) > 0.56 && h > 1.7 && h < 20) col.multiplyScalar(0.82);
@@ -3282,7 +3311,7 @@
   // ==================================================================
   // Экраны: меню, пауза, настройки, рекорды
   // ==================================================================
-  const OVERLAYS = ['menu', 'how', 'records', 'settings', 'pause', 'dead'];
+  const OVERLAYS = ['menu', 'how', 'records', 'settings', 'pause', 'dead', 'levelDone'];
   let panelReturn = 'menu';
   let wakeLock = null;
 
@@ -3353,6 +3382,8 @@
   $('btnToMenu').addEventListener('click', goToMenu);
   $('btnRestart').addEventListener('click', startNewGame);
   $('btnDeadMenu').addEventListener('click', () => { resetGame(); showScreen('menu'); });
+  $('btnLevelGo').addEventListener('click', () => showScreen('game'));
+  $('btnLevelMenu').addEventListener('click', () => { screen = 'game'; goToMenu(); });
 
   function applySettings() {
     sun.castShadow = !!settings.shadows;
@@ -3421,102 +3452,996 @@
   })();
 
   // ==================================================================
-  // Вступительная сцена: предыстория, рация, пробуждение у потухшего костра
+  // Уровень 1 «Лес»: наш лагерь, большая река со старым мостом, лагерь школьных сборов
+  // ==================================================================
+  const LV = {
+    riverX: 58, riverW: 18, riverAmp: 7, bridgeZ: 2, deckH: 3.4, bridgeWood: 12,
+    camp: { x: 125, z: 4, hw: 36, hd: 30 },
+    tent: { x: -1.5, z: -7.5, rot: 0.25 },
+    fire: { x: 1.6, z: 0.8 },
+    road: [[-3, -3], [-28, -10], [-70, -26], [-130, -38], [-200, -52], [-262, -60]],
+    sneaker: { x: -31, z: -11.5 },
+  };
+  const riverCX = (z) => LV.riverX + Math.sin(z * 0.018) * LV.riverAmp;
+  const riverHalf = () => LV.riverW / 2;
+  const gate = () => ({ x: LV.camp.x - LV.camp.hw, z: LV.camp.z });
+  const bridgeEnds = () => { const cx = riverCX(LV.bridgeZ); return { w: cx - riverHalf() - 2.5, e: cx + riverHalf() + 2.5 }; };
+
+  const PARTS = {
+    battery: 'Аккумулятор',
+    wires: 'Провода и инструменты',
+    wheel: 'Колесо',
+    fuel: 'Канистра бензина',
+  };
+  const freshStory = () => ({ said: {}, momCalled: false, bridge: false, carSeen: false, parts: {}, key: false, opened: {}, skladOpen: false, levelDone: false });
+
+  // Все реплики уровня 1 (номера совпадают со сценарием и именами голосовых файлов)
+  const LINES = {
+    'L1-01': ['Миша', 'Пап, мы уже приехали? Чур, я первый ставлю палатку!'],
+    'L1-02': ['Папа', 'Приехали. Только далеко не убегай, Миш, ладно?'],
+    'L1-03': ['Мия', 'Ой… Мы же забыли продукты. И на вечер, и на завтра.'],
+    'L1-04': ['Джек', 'До города минут двадцать. Мы с Мией быстро съездим.'],
+    'L1-05': ['Папа', 'Давайте. А мы пока дров наберём.'],
+    'L1-06': ['Папа', 'Миш, подкинь в костёр пару веток…'],
+    'L1-07': ['Папа', 'Миша? Ты где?'],
+    'L1-08': ['Папа', 'Миша! Это не смешно! Отзовись!'],
+    'L1-09': ['Папа', 'Джек, возьми трубку… Джек! Миша пропал!'],
+    'L1-10': ['Джек', '(смеётся) Твоего сына больше нет.'],
+    'L1-11': ['Папа', 'Что?.. Джек? Джек!..'],
+    'L1-12': ['Папа', 'Так. Спокойно. Надо осмотреть всё вокруг.'],
+    'L1-13': ['Папа', 'Его кроссовок… И следы шин. Джек вернулся за ним.'],
+    'L1-14': ['Папа', 'На том берегу какой-то лагерь. Может, там люди. Или машина.'],
+    'L1-14a': ['Папа', 'Мост развалился. Течение такое, что вплавь не перебраться. Надо залатать досками.'],
+    'L1-14b': ['Папа', 'Держится. Можно идти.'],
+    'L1-15': ['Папа', 'В темноте я ничего не найду. Надо дождаться утра.'],
+    'L1-16': ['Мама', 'Алло, сынок? Наконец-то дозвонилась! Ты где? Вы всё ещё в лесу?'],
+    'L1-17': ['Папа', 'Мам, тут такое… Мишу похитил Джек. Я не понимаю, что происходит.'],
+    'L1-18': ['Мама', 'Слушай меня. В городе началось что-то страшное. По новостям говорят — эпидемия.'],
+    'L1-19': ['Мама', 'Всё пошло из вашего леса. Туда недавно поехала целая бригада, школьные сборы. Заразились все.'],
+    'L1-20': ['Мама', 'Люди кусаются, бросаются друг на друга… Уезжай оттуда, слышишь? Немедленно!'],
+    'L1-21': ['Папа', 'Без Миши я никуда не поеду. (звонок обрывается) Мам? Мама!'],
+    'L1-22': ['Папа', 'Никого… Вещи брошены, будто все разом убежали.'],
+    'L1-23': ['Папа', 'Машина. Ни аккумулятора, ни колеса, бак пустой. Ну хоть что-то.'],
+    'L1-24': ['Папа', 'Ключ с биркой «Склад». Пригодится.'],
+    'L1-25': ['Папа', 'Всё есть. Теперь собрать её.'],
+    'L1-26': ['Папа', 'Эй! Вы из лагеря? Вы не видели парня? Шестнадцать лет, в синей куртке…'],
+    'L1-27': ['Папа', 'А-а! Ты что творишь?! Отпусти!'],
+    'L1-28': ['Папа', 'Да что с тобой такое?.. Это не человек…'],
+    'L1-29': ['Папа', 'Ну давай… давай!'],
+    'L1-30': ['Папа', 'Держись, Миша. Я тебя найду. И Джека тоже.'],
+  };
+
+  // Озвучка: когда появятся файлы voice/<номер>.m4a, их имена перечисляются здесь
+  const VOICE_FILES = [];
+  const Voice = {
+    play(id) {
+      if (!VOICE_FILES.includes(id) || !settings.sound) return 0;
+      try { const a = new Audio('voice/' + id + '.m4a'); a.volume = settings.volume; a.play().catch(() => {}); } catch (e) { /* без голоса */ }
+      return 0;
+    },
+  };
+
+  // Субтитры во время игры: реплики идут по очереди, игра не останавливается
+  const Say = (function () {
+    const box = $('say'), whoEl = $('sayWho'), textEl = $('sayText');
+    const queue = [];
+    let cur = null, t = 0;
+    function next() {
+      cur = queue.shift() || null;
+      if (!cur) { box.classList.remove('show'); return; }
+      const [who, text] = LINES[cur.id];
+      whoEl.textContent = cur.who || who;
+      textEl.textContent = text;
+      box.classList.add('show');
+      t = 0;
+      cur.dur = Math.max(2.4, text.length * 0.062) + 0.5;
+      if (cur.radio) Sound.play('radio');
+      Voice.play(cur.id);
+      if (cur.onStart) cur.onStart();
+    }
+    return {
+      // Реплика сюжета звучит один раз за игру
+      line(id, opts) {
+        if (P.story.said[id]) return false;
+        P.story.said[id] = true;
+        queue.push(Object.assign({ id }, opts || {}));
+        if (!cur) next();
+        return true;
+      },
+      update(dt) {
+        if (!cur) return;
+        t += dt;
+        if (t >= cur.dur) { const done = cur.onEnd; next(); if (done) done(); }
+      },
+      busy: () => !!cur || queue.length > 0,
+      clear() { queue.length = 0; cur = null; box.classList.remove('show'); },
+    };
+  })();
+
+  // Маска карты с шагом 2 м: где не растут деревья и трава, где дорога и площадка лагеря
+  const MASK_N = WORLD.size / 2;
+  const mask = new Uint8Array(MASK_N * MASK_N);
+  const M_NOVEG = 1, M_NOGRASS = 2, M_ROAD = 4, M_CAMP = 8;
+  const maskAt = (x, z) => {
+    const c = Math.floor((x + HALF) / 2), r = Math.floor((z + HALF) / 2);
+    return c < 0 || r < 0 || c >= MASK_N || r >= MASK_N ? 0 : mask[r * MASK_N + c];
+  };
+  function markArea(x0, z0, x1, z1, test, bits) {
+    const c0 = Math.max(0, Math.floor((x0 + HALF) / 2)), c1 = Math.min(MASK_N - 1, Math.floor((x1 + HALF) / 2));
+    const r0 = Math.max(0, Math.floor((z0 + HALF) / 2)), r1 = Math.min(MASK_N - 1, Math.floor((z1 + HALF) / 2));
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+      const x = -HALF + c * 2 + 1, z = -HALF + r * 2 + 1;
+      if (test(x, z)) mask[r * MASK_N + c] |= bits;
+    }
+  }
+  function segDist(px, pz, ax, az, bx, bz) {
+    const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
+    const t = clamp(((px - ax) * dx + (pz - az) * dz) / l2, 0, 1);
+    return Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
+  }
+  function roadDist(x, z) {
+    let d = 1e9;
+    const pts = LV.road;
+    for (let i = 0; i < pts.length - 1; i++) d = Math.min(d, segDist(x, z, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]));
+    // Тропа от моста к воротам лагеря
+    const be = bridgeEnds(), g = gate();
+    d = Math.min(d, segDist(x, z, be.e, LV.bridgeZ, g.x, g.z));
+    return d;
+  }
+  const insideCampRect = (x, z, m) => Math.abs(x - LV.camp.x) < LV.camp.hw + m && Math.abs(z - LV.camp.z) < LV.camp.hd + m;
+
+  // Здания лагеря сборов (координаты относительно центра лагеря)
+  const BUILDINGS = [
+    { id: 'guard', name: 'Сторожка', x: -31, z: -9, w: 4.4, d: 4, door: 's', wall: 0x8c6a48, roof: 0x5a3b2a },
+    { id: 'canteen', name: 'Столовая', x: 2, z: -13, w: 13, d: 8, door: 's', wall: 0xc9b48a, roof: 0x7a3f2c },
+    { id: 'sklad', name: 'Склад', x: 3, z: -25, w: 7, d: 5, door: 'w', wall: 0x7a7f82, roof: 0x4a4f52, locked: true },
+    { id: 'vozh', name: 'Домик вожатых', x: -10, z: 15, w: 5.5, d: 4.5, door: 'n', wall: 0x7aa06a, roof: 0x3f5f3a, sign: 'ВОЖАТЫЕ' },
+    { id: 'cabin2', name: 'Домик', x: 1, z: 15, w: 5.5, d: 4.5, door: 'n', wall: 0x6a8ab0, roof: 0x3a4f6a },
+    { id: 'cabin3', name: 'Домик', x: 12, z: 15, w: 5.5, d: 4.5, door: 'n', wall: 0xb07a6a, roof: 0x6a3f3a },
+    { id: 'gen', name: 'Будка генератора', x: 28, z: 22, w: 3.4, d: 3, door: 'w', wall: 0x6f7a5a, roof: 0x3f4a32 },
+  ];
+  // Сундуки: где стоят и что в них
+  const CHESTS = [
+    { id: 'c-guard', b: 'guard', dx: 0.9, dz: -0.9, part: 'battery', items: { berry: 2 } },
+    { id: 'c-vozh', b: 'vozh', dx: -1.2, dz: 1.2, part: 'wires', key: true, items: { berry: 2 } },
+    { id: 'c-sklad', b: 'sklad', dx: 1.8, dz: 1.2, part: 'wheel', items: { stone: 4 } },
+    { id: 'c-gen', b: 'gen', dx: 0.6, dz: 0.7, part: 'fuel', items: {} },
+    { id: 'c-canteen', b: 'canteen', dx: 4.5, dz: -2.5, items: { berry: 6 } },
+    { id: 'c-cabin2', b: 'cabin2', dx: 1.4, dz: 1.2, items: { wood: 4, berry: 2 } },
+    { id: 'c-cabin3', b: 'cabin3', dx: -1.4, dz: 1.2, items: { stone: 3, berry: 3 } },
+  ];
+  const CAR = { dx: -29, dz: 11, rot: -Math.PI / 2 };
+
+  function buildMask() {
+    const half = riverHalf(), be = bridgeEnds();
+    // Река и берега
+    markArea(LV.riverX - LV.riverAmp - half - 6, -HALF, LV.riverX + LV.riverAmp + half + 6, HALF,
+      (x, z) => Math.abs(x - riverCX(z)) < half + 4, M_NOVEG | M_NOGRASS);
+    // Дороги
+    markArea(-HALF, -HALF, HALF, HALF, (x, z) => roadDist(x, z) < 5, M_NOVEG);
+    markArea(-HALF, -HALF, HALF, HALF, (x, z) => roadDist(x, z) < 2.6, M_ROAD | M_NOGRASS);
+    // Подходы к мосту
+    markArea(be.w - 6, LV.bridgeZ - 6, be.e + 6, LV.bridgeZ + 6, () => true, M_NOVEG);
+    // Лагерь сборов: забор, площадка, здания
+    const C = LV.camp;
+    markArea(C.x - C.hw - 8, C.z - C.hd - 8, C.x + C.hw + 8, C.z + C.hd + 8, () => true, M_NOVEG);
+    markArea(C.x - C.hw, C.z - C.hd, C.x + C.hw, C.z + C.hd, () => true, M_CAMP);
+    for (const b of BUILDINGS) {
+      markArea(C.x + b.x - b.w / 2 - 1, C.z + b.z - b.d / 2 - 1, C.x + b.x + b.w / 2 + 1, C.z + b.z + b.d / 2 + 1, () => true, M_NOGRASS);
+    }
+    // Наш лагерь
+    markArea(LV.tent.x - 3, LV.tent.z - 3, LV.tent.x + 3, LV.tent.z + 3, () => true, M_NOVEG | M_NOGRASS);
+  }
+
+  // Форма земли под уровень: русло реки, ровный лагерь, дорога без воды
+  const bridgeStrip = [];
+  function shapeTerrain() {
+    const half = riverHalf(), C = LV.camp;
+    for (let r = 0; r < N1; r++) for (let c = 0; c < N1; c++) {
+      const i = r * N1 + c, x = -HALF + c * STEP, z = -HALF + r * STEP;
+      let h = heights[i];
+      // Площадка лагеря сборов
+      const out = Math.max(Math.abs(x - C.x) - C.hw, Math.abs(z - C.z) - C.hd, 0);
+      if (out < 16) h = lerp(3.6 + (vnoise(x * 0.05, z * 0.05, 7) - 0.5) * 0.6, h, smoothstep(0, 16, out));
+      // Дорога: поднимаем над водой
+      const rd = roadDist(x, z);
+      if (rd < 6) h = lerp(Math.max(h, 2.4), h, smoothstep(3, 6, rd));
+      // Подходы к мосту на уровне настила
+      const d = Math.abs(x - riverCX(z)), bz = Math.abs(z - LV.bridgeZ);
+      if (bz < 7 && d > half - 1 && d < half + 14) h = lerp(LV.deckH - 0.25, h, Math.max(smoothstep(3, 7, bz), smoothstep(half + 8, half + 14, d)));
+      // Русло большой реки
+      if (d < half + 8) h = Math.min(h, lerp(-4.2, h, smoothstep(half - 2, half + 7, d)));
+      heights[i] = h;
+    }
+  }
+  // Запоминаем полосу под мостом: после ремонта поднимем её до настила, чтобы по мосту можно было ходить
+  function recordBridgeStrip() {
+    bridgeStrip.length = 0;
+    const half = riverHalf();
+    for (let r = 0; r < N1; r++) for (let c = 0; c < N1; c++) {
+      const x = -HALF + c * STEP, z = -HALF + r * STEP;
+      if (Math.abs(z - LV.bridgeZ) <= 1.8 && Math.abs(x - riverCX(z)) < half + 2.5) bridgeStrip.push([r * N1 + c, heights[r * N1 + c]]);
+    }
+  }
+  let bridgeRaised = false;
+  function raiseBridge(on) {
+    if (on === bridgeRaised || !terrain) return;
+    bridgeRaised = on;
+    const pos = terrain.geometry.attributes.position;
+    for (const [i, orig] of bridgeStrip) {
+      const h = on ? Math.max(orig, LV.deckH - 0.08) : orig;
+      heights[i] = h;
+      pos.setY(i, h);
+    }
+    pos.needsUpdate = true;
+    terrain.geometry.computeVertexNormals();
+  }
+
+  function groundTint(x, z, h, out) {
+    const m = maskAt(x, z);
+    if (m & M_ROAD && h > 1) return out.lerp(TC.dirt, 0.85);
+    if (m & M_CAMP) return out.lerp(TC.campGround, 0.55 + vnoise(x * 0.2, z * 0.2, 9) * 0.25);
+    return out;
+  }
+
+  // ---------- Модели
+  const L1 = { group: null, buildings: [], chests: [], boxes: [], interact: [], car: null, tent: null, bridge: null, windows: [], sneaker: null, lamps: [] };
+  function rbMesh(w, h, d, r, mat, shadow) {
+    const m = new THREE.Mesh(roundedBox(w, h, d, r), mat);
+    m.castShadow = shadow !== false;
+    m.receiveShadow = true;
+    return m;
+  }
+  function makeCar(color, broken) {
+    const g = new THREE.Group();
+    const paint = std(color, { roughness: 0.45, metalness: 0.15 }), glass = std(0x1d2a33, { roughness: 0.15, metalness: 0.3 });
+    const dark = std(0x1a1a1a, { roughness: 0.9 }), chrome = std(0xb8bcc0, { roughness: 0.3, metalness: 0.6 });
+    const body = rbMesh(4.3, 0.85, 1.9, 0.28, paint); body.position.y = 0.78; g.add(body);
+    const cabin = rbMesh(2.3, 0.78, 1.72, 0.3, paint); cabin.position.set(-0.25, 1.52, 0); g.add(cabin);
+    const win = rbMesh(2.32, 0.5, 1.74, 0.2, glass, false); win.position.set(-0.25, 1.56, 0); win.scale.set(0.98, 1, 1.01); g.add(win);
+    for (const s of [-1, 1]) {
+      const lamp = rbMesh(0.08, 0.2, 0.42, 0.05, new THREE.MeshBasicMaterial({ color: broken ? 0x555544 : 0xfff3c0 }), false);
+      lamp.position.set(2.15, 0.85, s * 0.6); g.add(lamp);
+      const tail = rbMesh(0.08, 0.18, 0.36, 0.05, new THREE.MeshBasicMaterial({ color: 0x8a1a1a }), false);
+      tail.position.set(-2.15, 0.88, s * 0.62); g.add(tail);
+    }
+    const bumper = rbMesh(0.2, 0.22, 1.95, 0.08, chrome); bumper.position.set(2.18, 0.5, 0); g.add(bumper);
+    const wheels = [];
+    const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
+    for (const [wx, wz] of [[1.35, 0.92], [1.35, -0.92], [-1.35, 0.92], [-1.35, -0.92]]) {
+      const w = new THREE.Mesh(wheelGeo, dark); w.rotation.x = Math.PI / 2; w.position.set(wx, 0.4, wz); w.castShadow = true; g.add(w);
+      const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.32, 10), chrome); hub.rotation.x = Math.PI / 2; hub.position.copy(w.position); g.add(hub);
+      wheels.push([w, hub]);
+    }
+    let hood = null;
+    if (broken) {
+      // Капот открыт, переднего левого колеса нет, машина присела на этот угол
+      hood = rbMesh(1.3, 0.08, 1.8, 0.04, paint); hood.position.set(1.55, 1.25, 0); hood.rotation.z = 0.9; g.add(hood);
+      wheels[0][0].visible = wheels[0][1].visible = false;
+      g.userData.tilt = 0.06;
+    }
+    g.userData.wheels = wheels;
+    g.userData.hood = hood;
+    return g;
+  }
+  function makeChest() {
+    const g = new THREE.Group();
+    const wood = std(0x7a4f2a), band = std(0x3a3a3a, { metalness: 0.5, roughness: 0.5 });
+    const base = rbMesh(0.9, 0.48, 0.6, 0.06, wood); base.position.y = 0.24; g.add(base);
+    for (const x of [-0.3, 0.3]) { const b = rbMesh(0.07, 0.5, 0.62, 0.02, band); b.position.set(x, 0.25, 0); g.add(b); }
+    const lid = new THREE.Group(); lid.position.set(0, 0.48, -0.3); g.add(lid);
+    const lidBox = rbMesh(0.92, 0.18, 0.62, 0.07, wood); lidBox.position.set(0, 0.09, 0.31); lid.add(lidBox);
+    const lock = rbMesh(0.12, 0.14, 0.04, 0.02, std(0xc9a23a, { metalness: 0.6, roughness: 0.4 })); lock.position.set(0, 0.02, 0.63); lid.add(lock);
+    g.userData.lid = lid;
+    return g;
+  }
+  function makeTent() {
+    const g = new THREE.Group();
+    const cloth = std(0xd2672f, { roughness: 0.9 }), dark = std(0x2b1c14);
+    for (const s of [-1, 1]) {
+      const side = rbMesh(2.6, 0.06, 2.0, 0.03, cloth); side.position.set(0, 0.72, s * 0.62); side.rotation.x = s * 0.88; g.add(side);
+    }
+    const ridge = rbMesh(2.7, 0.08, 0.08, 0.03, std(0x8a8a8a)); ridge.position.y = 1.45; g.add(ridge);
+    const door = new THREE.Mesh(new THREE.CircleGeometry(0.65, 3), dark); door.position.set(1.31, 0.45, 0); door.rotation.set(0, Math.PI / 2, Math.PI / 2); g.add(door);
+    const mat = rbMesh(3.2, 0.04, 2.6, 0.02, std(0x4a5a3a)); mat.position.y = 0.02; g.add(mat);
+    return g;
+  }
+  function makeBuilding(b) {
+    const C = LV.camp, g = new THREE.Group();
+    const cx = C.x + b.x, cz = C.z + b.z, gy = getHeight(cx, cz);
+    g.position.set(cx, gy, cz);
+    const wallMat = std(b.wall, { roughness: 0.85 }), roofMat = std(b.roof, { roughness: 0.8 }), trim = std(0x3a2a1e);
+    const H = 2.8, T = 0.25, door = 1.5;
+    const walls = [];
+    // Стена из двух частей, если в ней дверь
+    const wall = (side) => {
+      const along = side === 'n' || side === 's' ? b.w : b.d;
+      const off = side === 'n' ? -b.d / 2 : side === 's' ? b.d / 2 : side === 'w' ? -b.w / 2 : b.w / 2;
+      const horiz = side === 'n' || side === 's';
+      const pieces = b.door === side ? [[-along / 2, -door / 2], [door / 2, along / 2]] : [[-along / 2, along / 2]];
+      for (const [a0, a1] of pieces) {
+        const len = a1 - a0, mid = (a0 + a1) / 2;
+        const m = rbMesh(horiz ? len : T, H, horiz ? T : len, 0.05, wallMat);
+        m.position.set(horiz ? mid : off, H / 2, horiz ? off : mid);
+        g.add(m);
+        walls.push({ x: cx + (horiz ? mid : off), z: cz + (horiz ? off : mid), rot: 0, hw: (horiz ? len : T) / 2, hd: (horiz ? T : len) / 2 });
+      }
+      if (b.door === side) {
+        // Перемычка над дверью
+        const top = rbMesh(horiz ? door : T, 0.5, horiz ? T : door, 0.04, wallMat);
+        top.position.set(horiz ? 0 : off, H - 0.25, horiz ? off : 0);
+        g.add(top);
+      }
+    };
+    for (const side of ['n', 's', 'w', 'e']) wall(side);
+    // Окна (ночью светятся)
+    const winMat = new THREE.MeshBasicMaterial({ color: 0x223040 });
+    L1.windows.push(winMat);
+    for (const side of ['n', 's']) {
+      if (b.w < 5) continue;
+      for (const wx of [-b.w / 2 + 1.3, b.w / 2 - 1.3]) {
+        const wm = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.7), winMat);
+        const z = side === 'n' ? -b.d / 2 - T / 2 - 0.01 : b.d / 2 + T / 2 + 0.01;
+        wm.position.set(wx, 1.6, z);
+        if (side === 'n') wm.rotation.y = Math.PI;
+        g.add(wm);
+      }
+    }
+    const floor = rbMesh(b.w, 0.12, b.d, 0.04, std(0x6a5038), false); floor.position.y = 0.06; g.add(floor);
+    // Двускатная крыша
+    const roof = new THREE.Group();
+    const slope = 0.42, rw = b.w + 0.7, rd = b.d / 2 + 0.45;
+    for (const s of [-1, 1]) {
+      const p = rbMesh(rw, 0.14, rd / Math.cos(slope), 0.05, roofMat);
+      p.position.set(0, H + Math.tan(slope) * rd / 2, s * rd / 2);
+      p.rotation.x = s * slope;
+      roof.add(p);
+    }
+    const ridge = rbMesh(rw + 0.05, 0.16, 0.2, 0.06, trim); ridge.position.y = H + Math.tan(slope) * rd; roof.add(ridge);
+    for (const s of [-1, 1]) {
+      const gable = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, H, -b.d / 2), new THREE.Vector3(0, H, b.d / 2), new THREE.Vector3(0, H + Math.tan(slope) * rd, 0),
+      ]), wallMat);
+      gable.geometry.setIndex([0, 1, 2, 2, 1, 0]);
+      gable.geometry.computeVertexNormals();
+      gable.position.x = s * b.w / 2;
+      roof.add(gable);
+    }
+    g.add(roof);
+    if (b.sign) {
+      const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+      const x = c.getContext('2d'); x.fillStyle = '#e8dcc0'; x.fillRect(0, 0, 256, 64); x.fillStyle = '#3a2a1e';
+      x.font = 'bold 34px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(b.sign, 128, 34);
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.4), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c) }));
+      const z = b.door === 'n' ? -b.d / 2 - 0.15 : b.d / 2 + 0.15;
+      sign.position.set(0, H - 0.05 + 0.35, z);
+      if (b.door === 'n') sign.rotation.y = Math.PI;
+      g.add(sign);
+    }
+    let doorMesh = null, doorBox = null;
+    if (b.locked) {
+      doorMesh = rbMesh(T * 0.8, H - 0.5, door, 0.04, std(0x5a3b22));
+      const off = -b.w / 2;
+      doorMesh.position.set(off, (H - 0.5) / 2, 0);
+      g.add(doorMesh);
+      doorBox = { x: cx + off, z: cz, rot: 0, hw: T / 2, hd: door / 2 };
+    }
+    L1.group.add(g);
+    return { spec: b, g, roof, walls, cx, cz, gy, doorMesh, doorBox, inside: (x, z) => Math.abs(x - cx) < b.w / 2 && Math.abs(z - cz) < b.d / 2 };
+  }
+
+  // Мост: разрушенный и починенный вариант
+  function makeBridge() {
+    const g = new THREE.Group(), broken = new THREE.Group(), fixed = new THREE.Group();
+    const be = bridgeEnds(), len = be.e - be.w, cx = (be.e + be.w) / 2, z = LV.bridgeZ, y = LV.deckH;
+    const old = std(0x6b4a2f, { roughness: 0.95 }), fresh = std(0xa07a4a, { roughness: 0.9 }), post = std(0x4a3320);
+    const n = Math.round(len / 0.55);
+    for (let i = 0; i < n; i++) {
+      const x = be.w + (i + 0.5) * (len / n);
+      const fromBank = Math.min(x - be.w, be.e - x);
+      const p = rbMesh(0.48, 0.1, 3.2, 0.03, fromBank < 5 ? old : fresh);
+      p.position.set(x, y, z); p.rotation.y = (hash2(i, 3, 5) - 0.5) * 0.05;
+      fixed.add(p);
+      if (fromBank < 4.5 && hash2(i, 7, 9) > 0.2) {
+        const q = rbMesh(0.48, 0.1, 3.2, 0.03, old); q.position.copy(p.position); q.rotation.y = (hash2(i, 1, 2) - 0.5) * 0.3;
+        q.rotation.z = fromBank > 3.2 ? -0.15 * Math.sign(x - cx) : 0; broken.add(q);
+      }
+    }
+    for (const s of [-1.55, 1.55]) {
+      const beam = rbMesh(len, 0.16, 0.18, 0.05, old); beam.position.set(cx, y - 0.12, z + s); fixed.add(beam);
+      const rail = rbMesh(len, 0.1, 0.1, 0.04, fresh); rail.position.set(cx, y + 0.95, z + s); fixed.add(rail);
+      for (const [x0, x1] of [[be.w, be.w + 4.5], [be.e - 4.5, be.e]]) {
+        const bb = rbMesh(x1 - x0, 0.16, 0.18, 0.05, old); bb.position.set((x0 + x1) / 2, y - 0.12, z + s); broken.add(bb);
+      }
+    }
+    for (let x = be.w + 1; x <= be.e - 1; x += 4) {
+      for (const s of [-1.55, 1.55]) {
+        const h = y + 1.1 + 4.5;
+        const pm = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, h, 8), post);
+        pm.position.set(x, y + 1.1 - h / 2, z + s); pm.castShadow = true;
+        fixed.add(pm);
+        if (hash2(Math.round(x), s > 0 ? 1 : 2, 4) > 0.35) { const pb = pm.clone(); pb.scale.y = 0.75; pb.position.y -= 1; pb.rotation.z = (hash2(Math.round(x), 5, 6) - 0.5) * 0.4; broken.add(pb); }
+      }
+    }
+    g.add(broken, fixed);
+    L1.group.add(g);
+    return { g, broken, fixed };
+  }
+
+  function buildLevel() {
+    L1.group = new THREE.Group();
+    surface.add(L1.group);
+    const C = LV.camp;
+    // Наш лагерь: палатка
+    L1.tent = makeTent();
+    L1.tent.position.set(LV.tent.x, getHeight(LV.tent.x, LV.tent.z), LV.tent.z);
+    L1.tent.rotation.y = LV.tent.rot;
+    L1.group.add(L1.tent);
+    L1.circles = [{ x: LV.tent.x, z: LV.tent.z, r: 1.4 }];
+    // Кроссовок Миши на дороге
+    const shoe = new THREE.Group();
+    const sole = rbMesh(0.3, 0.06, 0.12, 0.02, std(0xf0f0f0)); sole.position.y = 0.03; shoe.add(sole);
+    const top = rbMesh(0.24, 0.1, 0.11, 0.04, std(0x2f5fa8)); top.position.set(-0.02, 0.1, 0); shoe.add(top);
+    shoe.position.set(LV.sneaker.x, getHeight(LV.sneaker.x, LV.sneaker.z), LV.sneaker.z); shoe.rotation.set(0, 0.7, 1.2);
+    L1.group.add(shoe);
+    L1.sneaker = shoe;
+    // Мост
+    L1.bridge = makeBridge();
+    // Забор лагеря с воротами на запад
+    const fenceMat = std(0x7a5a3a), postMat = std(0x5a4028);
+    const fence = (x0, z0, x1, z1, gapAt) => {
+      const len = Math.hypot(x1 - x0, z1 - z0), steps = Math.round(len / 3);
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps, x = lerp(x0, x1, t), z = lerp(z0, z1, t);
+        if (gapAt && Math.hypot(x - gapAt.x, z - gapAt.z) < 3.2) continue;
+        const pm = rbMesh(0.18, 1.4, 0.18, 0.05, postMat); pm.position.set(x, getHeight(x, z) + 0.7, z); L1.group.add(pm);
+        if (i < steps) {
+          const nx = lerp(x0, x1, (i + 1) / steps), nz = lerp(z0, z1, (i + 1) / steps);
+          if (gapAt && Math.hypot((x + nx) / 2 - gapAt.x, (z + nz) / 2 - gapAt.z) < 3.4) continue;
+          for (const hy of [0.5, 1.1]) {
+            const rail = rbMesh(Math.hypot(nx - x, nz - z), 0.1, 0.08, 0.03, fenceMat);
+            rail.position.set((x + nx) / 2, getHeight(x, z) + hy, (z + nz) / 2); rail.rotation.y = -Math.atan2(nz - z, nx - x);
+            L1.group.add(rail);
+          }
+        }
+      }
+    };
+    const x0 = C.x - C.hw, x1 = C.x + C.hw, z0 = C.z - C.hd, z1 = C.z + C.hd, g0 = gate();
+    fence(x0, z0, x1, z0); fence(x1, z0, x1, z1); fence(x1, z1, x0, z1); fence(x0, z1, x0, z0, g0);
+    const T = 0.15;
+    L1.boxes.push({ x: C.x, z: z0, rot: 0, hw: C.hw, hd: T }, { x: C.x, z: z1, rot: 0, hw: C.hw, hd: T }, { x: x1, z: C.z, rot: 0, hw: T, hd: C.hd });
+    const gz0 = g0.z - 3.2, gz1 = g0.z + 3.2;
+    L1.boxes.push({ x: x0, z: (z0 + gz0) / 2, rot: 0, hw: T, hd: (gz0 - z0) / 2 }, { x: x0, z: (gz1 + z1) / 2, rot: 0, hw: T, hd: (z1 - gz1) / 2 });
+    // Арка ворот с вывеской
+    const arch = new THREE.Group();
+    arch.position.set(g0.x, getHeight(g0.x, g0.z), g0.z);
+    for (const s of [-3.3, 3.3]) { const p = rbMesh(0.3, 3.4, 0.3, 0.08, postMat); p.position.set(0, 1.7, s); arch.add(p); }
+    const c = document.createElement('canvas'); c.width = 512; c.height = 96;
+    const cx2 = c.getContext('2d'); cx2.fillStyle = '#2f5f3a'; cx2.fillRect(0, 0, 512, 96); cx2.fillStyle = '#f2e8c8';
+    cx2.font = 'bold 40px sans-serif'; cx2.textAlign = 'center'; cx2.textBaseline = 'middle'; cx2.fillText('ЛАГЕРЬ «ЗАРНИЦА»', 256, 50);
+    const board = new THREE.Mesh(roundedBox(0.12, 0.9, 6.4, 0.04), [std(0x2f5f3a), std(0x2f5f3a), std(0x2f5f3a), std(0x2f5f3a), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c) }), std(0x2f5f3a)]);
+    board.position.set(0, 3.3, 0);
+    board.material[4].map.center.set(0.5, 0.5);
+    arch.add(board);
+    const backSign = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 0.85), new THREE.MeshBasicMaterial({ map: board.material[4].map }));
+    backSign.position.set(-0.07, 3.3, 0); backSign.rotation.y = -Math.PI / 2; arch.add(backSign);
+    L1.group.add(arch);
+    // Здания и сундуки
+    for (const b of BUILDINGS) {
+      const bd = makeBuilding(b);
+      L1.buildings.push(bd);
+      L1.boxes.push(...bd.walls);
+      if (bd.doorBox) L1.boxes.push(bd.doorBox);
+    }
+    for (const ch of CHESTS) {
+      const bd = L1.buildings.find((x) => x.spec.id === ch.b);
+      const m = makeChest();
+      const x = bd.cx + ch.dx, z = bd.cz + ch.dz;
+      m.position.set(x, bd.gy + 0.12, z);
+      m.rotation.y = Math.atan2(bd.cx - x, bd.cz - z);
+      L1.group.add(m);
+      L1.chests.push({ spec: ch, m, x, z });
+      L1.circles.push({ x, z, r: 0.55 });
+    }
+    // Сломанная машина у ворот
+    L1.car = makeCar(0x8a2f2a, true);
+    const carX = C.x + CAR.dx, carZ = C.z + CAR.dz;
+    L1.car.position.set(carX, getHeight(carX, carZ), carZ);
+    L1.car.rotation.y = CAR.rot;
+    L1.car.rotation.z = 0.04;
+    L1.group.add(L1.car);
+    L1.boxes.push({ x: carX, z: carZ, rot: CAR.rot, hw: 2.15, hd: 0.95 });
+    // Фонари и столбы с лампами (ночью светятся — огни видно с нашего берега)
+    const bulb = new THREE.MeshBasicMaterial({ color: 0x3a3426 });
+    L1.lampMat = bulb;
+    for (const [lx, lz] of [[-30, 4], [-15, 0], [0, 3], [15, 0], [26, 12], [-20, -18], [10, -20]]) {
+      const x = C.x + lx, z = C.z + lz, y = getHeight(x, z);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 4, 8), postMat); pole.position.set(x, y + 2, z); L1.group.add(pole);
+      const b = rbMesh(0.35, 0.22, 0.35, 0.1, bulb, false); b.position.set(x, y + 4.05, z); L1.group.add(b);
+      L1.circles.push({ x, z, r: 0.2 });
+    }
+    // Флагшток и разбросанные вещи
+    const flag = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 7, 8), std(0xb0b4b8, { metalness: 0.5 }));
+    flag.position.set(C.x - 8, getHeight(C.x - 8, C.z) + 3.5, C.z); L1.group.add(flag);
+    const cloth = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1), std(0xc23a2a, { side: THREE.DoubleSide }));
+    cloth.position.set(C.x - 7.2, getHeight(C.x - 8, C.z) + 6.4, C.z); L1.group.add(cloth);
+    L1.flag = cloth;
+    for (let i = 0; i < 9; i++) {
+      const x = C.x + (hash2(i, 1, 70) - 0.5) * 50, z = C.z + (hash2(i, 2, 70) - 0.5) * 40;
+      if (L1.buildings.some((b) => Math.abs(x - b.cx) < b.spec.w / 2 + 1.5 && Math.abs(z - b.cz) < b.spec.d / 2 + 1.5)) continue;
+      const bag = rbMesh(0.6, 0.35, 0.4, 0.12, std([0x3a5a8a, 0x8a3a3a, 0x3a7a4a, 0x7a6a3a][i % 4]));
+      bag.position.set(x, getHeight(x, z) + 0.17, z); bag.rotation.set(0, hash2(i, 3, 70) * 6, 0.3); L1.group.add(bag);
+    }
+    // Точки для взаимодействия
+    const be = bridgeEnds();
+    L1.interact = [
+      { kind: 'tent', x: LV.tent.x, z: LV.tent.z, r: 2.6 },
+      { kind: 'bridge', x: be.w - 0.5, z: LV.bridgeZ, r: 3.2 },
+      { kind: 'car', x: carX, z: carZ, r: 3.2 },
+      { kind: 'sklad', x: L1.buildings.find((b) => b.spec.id === 'sklad').doorBox.x - 0.6, z: L1.buildings.find((b) => b.spec.id === 'sklad').cz, r: 1.8 },
+      ...L1.chests.map((c) => ({ kind: 'chest', chest: c, x: c.x, z: c.z, r: 1.5 })),
+    ];
+  }
+
+  // Состояние мира по сюжету: крышки сундуков, дверь склада, мост
+  function applyStory() {
+    const s = P.story;
+    for (const c of L1.chests) c.m.userData.lid.rotation.x = s.opened[c.spec.id] ? -1.25 : 0;
+    const sk = L1.buildings.find((b) => b.spec.id === 'sklad');
+    sk.doorMesh.visible = !s.skladOpen;
+    sk.doorMesh.rotation.y = 0;
+    L1.bridge.broken.visible = !s.bridge;
+    L1.bridge.fixed.visible = s.bridge;
+    raiseBridge(s.bridge);
+    L1.sneaker.visible = true;
+  }
+  const doorOpen = (box) => { const sk = L1.buildings.find((b) => b.spec.id === 'sklad'); return box === sk.doorBox && P.story.skladOpen; };
+
+  // ---------- Столкновения: река без моста, стены, забор, машина
+  function levelCollide(e) {
+    for (const b of L1.boxes) if (!doorOpen(b)) pushFromBox(e, b);
+    for (const c of L1.circles) pushFromCircle(e, c.x, c.z, c.r);
+    const cx = riverCX(e.z), d = e.x - cx, half = riverHalf() + 0.3;
+    if (Math.abs(d) < half) {
+      if (P.story.bridge && (Math.abs(e.z - LV.bridgeZ) < 1.4 || e.onBridge)) {
+        e.onBridge = true;
+        e.z = clamp(e.z, LV.bridgeZ - 1.3, LV.bridgeZ + 1.3);
+        return;
+      }
+      const side = e.rside || Math.sign(d) || -1;
+      e.x = cx + side * half;
+      if (e === P) riverWarn();
+    } else {
+      e.onBridge = false;
+      e.rside = Math.sign(d);
+    }
+  }
+  let riverWarnT = 0;
+  function riverWarn() {
+    if (W.clock - riverWarnT < 4) return;
+    riverWarnT = W.clock;
+    if (!Say.line('L1-14a')) toast(P.story.bridge ? 'Течение сносит. Иди по мосту' : 'Течение слишком сильное. Нужен мост', 'warn');
+  }
+  const sideOfRiver = (x, z) => Math.sign(x - riverCX(z));
+  function zombieSpotOk(x, z) {
+    if (Math.abs(x - riverCX(z)) < riverHalf() + 3) return false;
+    // Без моста твари с того берега до игрока не доберутся — там их и не ставим
+    if (!P.story.bridge && sideOfRiver(x, z) !== sideOfRiver(P.x, P.z)) return false;
+    return !L1.buildings.some((b) => b.inside(x, z));
+  }
+  function blocksCamera(x, y, z) {
+    for (const b of L1.buildings) if (b.inside(x, z) && y < b.gy + 4.2 && !b.inside(P.x, P.z)) return true;
+    return false;
+  }
+
+  // ---------- Что можно сделать рядом
+  function nearInteract() {
+    let best = null, bd = 1e9;
+    for (const it of L1.interact) {
+      const d = Math.hypot(it.x - P.x, it.z - P.z);
+      if (d > it.r || d > bd) continue;
+      if (it.kind === 'chest' && P.story.opened[it.chest.spec.id]) continue;
+      if (it.kind === 'bridge' && P.story.bridge) continue;
+      if (it.kind === 'sklad' && P.story.skladOpen) continue;
+      if (it.kind === 'car' && P.story.levelDone) continue;
+      if (it.kind === 'tent' && !canSleepTime()) continue;
+      best = it; bd = d;
+    }
+    if (!best) return null;
+    const label = { tent: 'Спать', bridge: 'Починить мост', car: 'Чинить машину', sklad: 'Открыть склад', chest: 'Открыть' }[best.kind];
+    return { kind: 'use', target: best, label };
+  }
+  const canSleepTime = () => W.night || (W.t > CFG.dayLen - 45);
+  const zombiesNear = (r) => zombies.some((z) => !z.dead && !z.burn && !z.cave && Math.hypot(z.x - P.x, z.z - P.z) < r);
+
+  function use(it) {
+    const s = P.story;
+    if (it.kind === 'chest') {
+      const ch = it.chest.spec;
+      playAnim('pick', () => {
+        s.opened[ch.id] = true;
+        applyStory();
+        Sound.play('craft');
+        const got = [];
+        if (ch.part) { s.parts[ch.part] = true; got.push(PARTS[ch.part]); }
+        if (ch.key) { s.key = true; got.push('Ключ от склада'); }
+        for (const [id, n] of Object.entries(ch.items)) { const k = invAdd(id, n); if (k) got.push(ITEMS[id] + ' ×' + k); }
+        toast(got.length ? 'Найдено: ' + got.join(', ') : 'Пусто', got.length ? 'good' : 'item');
+        if (ch.key) Say.line('L1-24');
+        if (Object.keys(PARTS).every((p) => s.parts[p])) Say.line('L1-25');
+      });
+    } else if (it.kind === 'sklad') {
+      if (!s.key) { toast('Заперто. Нужен ключ от склада', 'warn'); return; }
+      s.skladOpen = true; applyStory(); Sound.play('chop'); toast('Склад открыт', 'good');
+    } else if (it.kind === 'bridge') {
+      const have = invCount('wood');
+      if (have < LV.bridgeWood) { toast('Для ремонта нужно дерево: ' + have + ' / ' + LV.bridgeWood, 'warn'); Say.line('L1-14a'); return; }
+      faceTo(riverCX(LV.bridgeZ), LV.bridgeZ);
+      playAnim('mine', () => {
+        invRemove('wood', LV.bridgeWood);
+        s.bridge = true;
+        applyStory();
+        Sound.play('craft');
+        toast('Мост починен', 'good');
+        Say.line('L1-14b');
+      });
+    } else if (it.kind === 'car') {
+      s.carSeen = true;
+      const missing = Object.keys(PARTS).filter((p) => !s.parts[p]);
+      if (missing.length) { toast('Не хватает: ' + missing.map((p) => PARTS[p]).join(', '), 'warn'); Say.line('L1-23'); return; }
+      playAnim('mine', () => { Sound.play('craft'); finishLevel(); });
+    } else if (it.kind === 'tent') {
+      if (zombiesNear(28)) { toast('Рядом твари — уснуть не получится', 'bad'); return; }
+      sleep();
+    }
+  }
+
+  function sleep() {
+    const f = $('fade');
+    releaseAllInput();
+    f.classList.add('on');
+    setTimeout(() => {
+      W.toSpawn = 0;
+      W.night = false; W.t = CFG.dayLen * 0.04; W.warned = false;
+      W.day++;
+      P.hunger = Math.max(10, P.hunger - 15); P.thirst = Math.max(10, P.thirst - 15);
+      P.hp = Math.min(P.maxHp, P.hp + 30);
+      onDawn();
+      toast('Ты проспал до утра', 'good');
+      setTimeout(() => f.classList.remove('on'), 250);
+    }, 400);
+  }
+
+  // ---------- Сюжетные события
+  function begin() {
+    Say.line('L1-12');
+  }
+  function onNightStory() {
+    // Первая ночь без тварей, со второй — вожатый, потом всё больше
+    if (W.day === 1) { W.toSpawn = 0; return true; }
+    if (W.day === 2 && !P.story.said['L1-26']) {
+      const a = Math.atan2(P.z - LV.camp.z, P.x - LV.camp.x) + rand(-0.8, 0.8);
+      for (let i = 0; i < 12; i++) {
+        const x = P.x + Math.cos(a + i) * 24, z = P.z + Math.sin(a + i) * 24;
+        if (!zombieSpotOk(x, z) || getHeight(x, z) < 0.8) continue;
+        const zb = spawnZombieAt(x, z, false, VOZH_MATS);
+        zb.special = 'vozh'; zb.speed *= 0.55;
+        break;
+      }
+      W.toSpawn = 2;
+      W.spawnT = 25;
+      return true;
+    }
+    W.toSpawn = Math.min(CFG.zombie.base + CFG.zombie.perDay * (W.day - 3), CFG.zombie.max);
+    return false;
+  }
+  function onDawnStory() {
+    if (W.day === 2 && !P.story.momCalled) setTimeout(momCall, 2500);
+  }
+  function momCall() {
+    if (P.story.momCalled || screen !== 'game') { if (!P.story.momCalled) setTimeout(momCall, 2000); return; }
+    P.story.momCalled = true;
+    Sound.play('ring');
+    setTimeout(() => Sound.play('ring'), 1300);
+    P.phone = true;
+    const tel = { who: 'Мама · телефон' };
+    setTimeout(() => {
+      Say.line('L1-16', tel); Say.line('L1-17'); Say.line('L1-18', tel); Say.line('L1-19', tel); Say.line('L1-20', tel);
+      Say.line('L1-21', { onEnd: () => { P.phone = false; } });
+    }, 2600);
+  }
+
+  function update(dt) {
+    Say.update(dt);
+    const s = P.story;
+    // Окна и фонари лагеря ночью светятся
+    const glow = nightK;
+    for (const m of L1.windows) m.color.setRGB(lerp(0.13, 1.0, glow), lerp(0.19, 0.78, glow), lerp(0.25, 0.4, glow));
+    L1.lampMat.color.setRGB(lerp(0.23, 1, glow), lerp(0.2, 0.9, glow), lerp(0.15, 0.6, glow));
+    if (L1.flag) L1.flag.rotation.y = Math.sin(W.clock * 1.7) * 0.25;
+    // Крыша прячется, когда игрок внутри
+    for (const b of L1.buildings) b.roof.visible = !b.inside(P.x, P.z);
+    if (inCave || P.dead) return;
+    // Триггеры реплик
+    if (Math.hypot(P.x - LV.sneaker.x, P.z - LV.sneaker.z) < 3.5) Say.line('L1-13');
+    const toRiver = riverCX(P.z) - P.x;
+    if (toRiver > 0 && toRiver < riverHalf() + 16) Say.line('L1-14');
+    const be = bridgeEnds();
+    if (!s.bridge && Math.hypot(P.x - be.w, P.z - LV.bridgeZ) < 9) Say.line('L1-14a');
+    if (W.day === 1 && W.night && W.t > CFG.nightLen * 0.4) Say.line('L1-15');
+    if (insideCampRect(P.x, P.z, -2)) Say.line('L1-22');
+    if (Math.hypot(P.x - (LV.camp.x + CAR.dx), P.z - (LV.camp.z + CAR.dz)) < 7) { s.carSeen = true; Say.line('L1-23'); }
+    // Первый зомби
+    for (const z of zombies) {
+      if (z.special !== 'vozh' || z.dead) continue;
+      if (Math.hypot(z.x - P.x, z.z - P.z) < 14) Say.line('L1-26');
+      if (z.hp < z.maxHp) Say.line('L1-28');
+    }
+    updateQuest();
+  }
+  function onBitten(z) { if (z.special === 'vozh') Say.line('L1-27'); }
+
+  // Задание на экране
+  const questEl = { root: $('quest'), title: $('questTitle'), sub: $('questSub') };
+  let questKey = '';
+  function updateQuest() {
+    const s = P.story;
+    let title, sub;
+    if (s.levelDone) { title = 'Уровень 1 пройден'; sub = 'Можно продолжать выживать'; }
+    else if (!s.momCalled) {
+      title = W.night ? 'Миши нигде нет' : 'Найти Мишу';
+      sub = W.night ? 'Ложись спать в палатке — утром продолжишь поиски' : 'Осмотри лагерь и дорогу';
+    } else if (!s.bridge) {
+      title = 'Починить мост через реку';
+      sub = 'Дерево: ' + Math.min(invCount('wood'), LV.bridgeWood) + ' / ' + LV.bridgeWood + ' · мост ниже по берегу';
+    } else if (!s.carSeen && !Object.keys(PARTS).some((k) => s.parts[k])) {
+      title = 'Найти машину в лагере сборов'; sub = 'Лагерь за мостом, на том берегу';
+    } else {
+      const left = Object.keys(PARTS).filter((p) => !s.parts[p]);
+      if (left.length) { title = 'Детали для машины: ' + (4 - left.length) + ' / 4'; sub = 'Нужно: ' + left.map((p) => PARTS[p]).join(', '); }
+      else { title = 'Починить машину'; sub = 'Все детали собраны — машина у ворот'; }
+    }
+    const key = title + '|' + sub;
+    if (key === questKey) return;
+    questKey = key;
+    questEl.title.textContent = title;
+    questEl.sub.textContent = sub;
+  }
+
+  // Конец уровня: сцена отъезда
+  function finishLevel() {
+    P.story.levelDone = true;
+    persist();
+    Say.clear();
+    Intro.play('ending');
+  }
+
+  const VOZH_MATS = { skin: std(0x8aa874), shirt: std(0xd0782a), pants: std(0x3a4a3a), belt: std(0x2a2019), shoes: std(0x2b2622), arms: std(0xd0782a), armsR: std(0x8aa874) };
+
+  const Level = {
+    buildMask, shapeTerrain, recordBridgeStrip, groundTint, build: buildLevel, applyStory,
+    collide: levelCollide, blocksCamera, nearInteract, use, update, begin, onNightStory, onDawnStory, onBitten,
+    noVeg: (x, z) => !!(maskAt(x, z) & M_NOVEG), noGrass: (x, z) => !!(maskAt(x, z) & M_NOGRASS),
+    zombieSpotOk, freshStory, makeCar, riverCX,
+  };
+
+  // ==================================================================
+  // Сцены: вступление уровня 1 и отъезд в конце (широкие полосы, субтитры, планы камеры)
   // ==================================================================
   const Intro = (function () {
-    // shot: план камеры; pose: 0 — лежит, 1 — сидит с рацией, 2 — стоит
-    const LINES = [
-      { shot: 'aerial', who: '', text: 'Три недели назад с гор спустился туман.', title: true },
-      { shot: 'aerial', who: '', text: 'Он был тёплым и пах дождём. Никто не испугался.' },
-      { shot: 'forest', who: '', text: 'А потом те, кто его вдохнул, перестали спать. И перестали быть людьми.' },
-      { shot: 'forest', who: '', text: 'Днём они прячутся в лесах и пещерах. Ночью выходят на охоту.' },
-      { shot: 'wake', who: 'Рация', text: '…кшш… Приём. Кто-нибудь меня слышит?', radio: true, pose: 0 },
-      { shot: 'wake', who: 'Рация', text: 'Это Вера, лагерь «Рассвет». Если ты жив — ответь.', radio: true, pose: 0 },
-      { shot: 'sit', who: 'Ты', text: 'Голова раскалывается… Где я?', pose: 1 },
-      { shot: 'sit', who: 'Вера', text: 'Ты в долине. Ты один пережил ночь у этого костра. Слушай внимательно.', radio: true, pose: 1 },
-      { shot: 'sit', who: 'Вера', text: 'Собери дерево и камень. Поставь верстак и сделай топор и оружие.', radio: true, pose: 1 },
-      { shot: 'sit', who: 'Вера', text: 'Набери воды во флягу, ешь ягоды с кустов. Огонь их отпугивает.', radio: true, pose: 1 },
-      { shot: 'stand', who: 'Вера', text: 'Каждую ночь их будет больше. Продержись, мы тебя найдём… кшш…', radio: true, pose: 2 },
-      { shot: 'stand', who: 'Ты', text: 'Ладно. Сначала — укрытие и оружие.', pose: 2 },
-    ];
-    const SHOTS = {
-      // [смещение камеры в начале, в конце, куда смотрит, высота взгляда, час суток]
-      aerial: { from: [-130, 75, 170], to: [-50, 42, 70], look: [0, 4, 0], hour: 17.35, abs: true, fog: [160, 900] },
-      forest: { from: [0, 0, 0], to: [0, 0, 0], hour: 17.7, forest: true, fog: [45, 260] },
-      wake: { from: [2.6, 1.9, 2.3], to: [1.5, 1.05, 1.3], look: [0, 0.4, -0.2] },
-      sit: { from: [1.7, 1.25, 2.5], to: [-1.3, 1.2, 2.4], look: [0, 0.85, 0] },
-      stand: { from: [-2.6, 2.1, 3.8], to: [-1.4, 2.4, -5.5], look: [0, 1.4, 0] },
-    };
-    const el = {
-      root: $('intro'), who: $('introWho'), text: $('introText'), next: $('introNext'), title: $('introTitle'), skip: $('introSkip'),
-    };
-    let i = 0, shot = null, shotT = 0, shotLen = 1, chars = 0, lineT = 0, done = false, stage = 0, stageTarget = 0;
-    let group = null, props = null, extras = [];
+    const el = { root: $('intro'), who: $('introWho'), text: $('introText'), next: $('introNext'), title: $('introTitle'), skip: $('introSkip') };
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    let S = null; // текущая сцена
+    let i = 0, shot = null, shotT = 0, shotLen = 1, chars = 0, lineT = 0, done = false, titleT = -1;
+    let group = null, actors = {};
 
-    function buildProps() {
-      group = new THREE.Group();
-      surface.add(group);
-      const gy = (x, z) => getHeight(x, z);
-      // Потухший костёр
-      const fire = new THREE.Group();
-      const fx = P.x + 1.5, fz = P.z + 0.6;
-      fire.position.set(fx, gy(fx, fz), fz);
-      for (let k = 0; k < 8; k++) {
-        const a = (k / 8) * TAU, st = new THREE.Mesh(GEO.rock, MAT.rockStatic);
-        st.scale.setScalar(0.2); st.position.set(Math.cos(a) * 0.6, 0.1, Math.sin(a) * 0.6); st.castShadow = true; fire.add(st);
+    // Положение на дороге: t = 0 у нашего лагеря, t = 1 — далеко у края карты
+    function roadPoint(t) {
+      const pts = LV.road, segs = [];
+      let total = 0;
+      for (let k = 0; k < pts.length - 1; k++) { const l = Math.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]); segs.push(l); total += l; }
+      let d = clamp(t, 0, 1) * total;
+      for (let k = 0; k < segs.length; k++) {
+        if (d <= segs[k] || k === segs.length - 1) {
+          const u = clamp(d / segs[k], 0, 1), a = pts[k], b = pts[k + 1];
+          return { x: lerp(a[0], b[0], u), z: lerp(a[1], b[1], u), ang: Math.atan2(b[0] - a[0], b[1] - a[1]) };
+        }
+        d -= segs[k];
       }
-      const coal = std(0x1c1714);
-      for (const a of [0.5, -0.7, 2.0]) {
-        const log = new THREE.Mesh(GEO.log, coal); log.position.y = 0.12; log.rotation.set(Math.PI / 2, a, 0, 'YXZ'); fire.add(log);
-      }
-      const ash = new THREE.Mesh(new THREE.CircleGeometry(0.5, 16), std(0x55504a));
-      ash.rotation.x = -Math.PI / 2; ash.position.y = 0.02; fire.add(ash);
-      group.add(fire);
-      // Дымок над костром
-      const smokeMat = new THREE.MeshBasicMaterial({ color: 0x9a9690, transparent: true, opacity: 0.25, depthWrite: false });
-      const puffs = [];
-      for (let k = 0; k < 7; k++) {
-        const m = new THREE.Mesh(GEO.blob, smokeMat.clone()); m.userData.ph = k / 7; fire.add(m); puffs.push(m);
-      }
-      // Рация: на земле, в руке и потом на поясе
-      const radioMesh = () => {
-        const r = new THREE.Group();
-        const body = new THREE.Mesh(roundedBox(0.14, 0.24, 0.07, 0.025), std(0x3c4a34)); r.add(body);
-        const grill = new THREE.Mesh(roundedBox(0.1, 0.07, 0.02, 0.008), std(0x1c1f1a)); grill.position.set(0, 0.04, 0.035); r.add(grill);
-        const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.012, 0.22, 6), std(0x1a1a1a)); ant.position.set(0.04, 0.22, 0); r.add(ant);
-        const led = new THREE.Mesh(roundedBox(0.025, 0.02, 0.01, 0.004), new THREE.MeshBasicMaterial({ color: 0x9cff6a })); led.position.set(-0.04, 0.09, 0.037); r.add(led);
-        r.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-        return r;
-      };
-      const ground = radioMesh();
-      const rx = P.x - 0.75, rz = P.z + 0.2;
-      ground.position.set(rx, gy(rx, rz) + 0.04, rz); ground.rotation.set(-Math.PI / 2, 0, 0.7);
-      group.add(ground);
-      const inHand = radioMesh(); inHand.position.set(0, -0.06, 0.06); inHand.rotation.x = -1.2; inHand.visible = false; handR.add(inHand);
-      const onBelt = radioMesh(); onBelt.position.set(0.35, 0.02, 0.06); onBelt.scale.setScalar(0.8); onBelt.visible = false; hero.upper.add(onBelt);
-      // Силуэты тварей в вечернем лесу
-      const zx = P.x + 34, zz = P.z + 18;
-      for (let k = 0; k < 3; k++) {
-        const z = makeHuman(ZOMBIE_MATS, 'zombie');
-        for (const ex of [-0.095, 0.095]) { const eye = new THREE.Mesh(roundedBox(0.09, 0.07, 0.03, 0.015), MAT.eye); eye.position.set(ex, 0.04, 0.224); z.head.add(eye); }
-        const x = zx + k * 2.4, zq = zz + (k - 1) * 1.6;
-        z.g.position.set(x, gy(x, zq), zq);
-        z.g.rotation.y = -2.3;
-        group.add(z.g);
-        extras.push({ h: z, x, z: zq, ph: k * 1.3 });
-      }
-      props = { fire, puffs, ground, inHand, onBelt, zx, zz };
+    }
+    const PARK = { x: -6, z: -1.5 };
+    function placeCar(car, t, reverse) {
+      const p = roadPoint(t);
+      car.position.set(p.x, getHeight(p.x, p.z), p.z);
+      car.rotation.y = p.ang + (reverse ? Math.PI : 0) - Math.PI / 2;
+    }
+    function npc(mats, extra) {
+      const h = makeHuman(mats, 'hero');
+      if (extra) extra(h);
+      group.add(h.g);
+      return h;
     }
 
-    function start() {
-      done = false; i = 0; stage = 0; stageTarget = 0; extras = [];
-      buildProps();
-      P.face = 0;
+    const SCRIPTS = {
+      intro: {
+        title: 'Долгая <span class="lit">ночь</span>',
+        endTitle: 'Уровень 1 · <span class="lit">Лес</span>',
+        lines: [
+          { id: 'L1-01', shot: 'drive', title: true },
+          { id: 'L1-02', shot: 'drive' },
+          { id: 'L1-03', shot: 'camp' },
+          { id: 'L1-04', shot: 'camp' },
+          { id: 'L1-05', shot: 'camp' },
+          { id: 'L1-06', shot: 'leave' },
+          { id: 'L1-07', shot: 'gone' },
+          { id: 'L1-08', shot: 'gone' },
+          { id: 'L1-09', shot: 'phone' },
+          { id: 'L1-10', shot: 'phone', who: 'Джек · телефон' },
+          { id: 'L1-11', shot: 'phone' },
+        ],
+        shots: {
+          drive: { hour: 17.45, fog: [120, 600], cam: (t) => { const c = actors.car.position; return [V(c.x - 9 + t * 2, c.y + 3.2, c.z + 7), V(c.x, c.y + 1, c.z)]; } },
+          camp: { hour: 17.8, cam: (t) => [V(LV.fire.x + 0.5 - t * 1.5, P.y + 3.0 - t * 0.6, LV.fire.z + 8.5 - t * 2), V(LV.fire.x, P.y + 1.0, LV.fire.z + 0.6)] },
+          leave: { hour: 18.0, cam: (t) => [V(P.x - 3.5, P.y + 2.2, P.z + 5 - t), V(lerp(PARK.x, -40, t), P.y + 1, lerp(PARK.z, -14, t))] },
+          gone: { hour: 18.25, cam: (t) => [V(P.x + 2.6 * Math.cos(t * 1.2), P.y + 1.7, P.z + 2.6 * Math.sin(t * 1.2) + 1), V(P.x, P.y + 1.4, P.z)] },
+          phone: { hour: 18.4, cam: (t) => [V(P.x + 1.6 - t * 0.4, P.y + 1.75, P.z + 1.4 - t * 0.3), V(P.x, P.y + 1.65, P.z)] },
+        },
+        setup() {
+          const car = Level.makeCar(0x3f6f8f, false);
+          group.add(car);
+          actors.car = car;
+          actors.misha = npc(MISHA_MATS, (h) => h.g.scale.setScalar(0.92));
+          actors.jack = npc(JACK_MATS, (h) => {
+            const beard = new THREE.Mesh(roundedBox(0.42, 0.16, 0.12, 0.05), std(0x5a3a22)); beard.position.set(0, -0.17, 0.2); h.head.add(beard);
+            const cap = new THREE.Mesh(roundedBox(0.5, 0.12, 0.5, 0.05), std(0x2a3a5a)); cap.position.y = 0.26; h.head.add(cap);
+          });
+          actors.mia = npc(MIA_MATS, (h) => {
+            const hair = std(0x2a1a12);
+            const top = new THREE.Mesh(roundedBox(0.5, 0.14, 0.5, 0.06), hair); top.position.y = 0.22; h.head.add(top);
+            const back = new THREE.Mesh(roundedBox(0.48, 0.55, 0.1, 0.05), hair); back.position.set(0, -0.05, -0.24); h.head.add(back);
+            h.g.scale.setScalar(0.95);
+          });
+          const at = (h, x, z, face) => { h.g.position.set(x, getHeight(x, z), z); h.g.rotation.y = face; };
+          at(actors.misha, -1.1, 1.6, 2.4);
+          at(actors.jack, 2.6, 2.4, -2.6);
+          at(actors.mia, 3.3, 0.2, -1.7);
+          for (const k of ['misha', 'jack', 'mia']) animateHuman(actors[k], 0, 0, false, false);
+          P.face = 0.9;
+          camFire(true);
+        },
+        update(dt, line, t) {
+          const car = actors.car;
+          if (line.shot === 'drive') {
+            // Машина подъезжает по дороге к лагерю и останавливается
+            placeCar(car, lerp(0.3, 0.02, smooth(clamp(t / 7.5, 0, 1))), true);
+            for (const k of ['misha', 'jack', 'mia']) actors[k].g.visible = false;
+            hero.g.visible = false;
+          } else if (line.shot === 'camp') {
+            car.position.set(PARK.x, getHeight(PARK.x, PARK.z), PARK.z); car.rotation.y = -0.6;
+            for (const k of ['misha', 'jack', 'mia']) actors[k].g.visible = true;
+            hero.g.visible = true;
+          } else if (line.shot === 'leave') {
+            actors.jack.g.visible = actors.mia.g.visible = false;
+            placeCar(car, smooth(clamp(t / 6, 0, 1)) * 0.35 + 0.005, false);
+          } else {
+            actors.misha.g.visible = false;
+            car.visible = false;
+          }
+          // Миша и взрослые немного двигаются, пока стоят у костра
+          const sway = Math.sin(W.clock * 1.3) * 0.05;
+          for (const k of ['misha', 'jack', 'mia']) { actors[k].head.rotation.y = sway; actors[k].armR.rotation.x = Math.sin(W.clock * 0.9 + k.length) * 0.1; }
+          if (line.id === 'L1-03' || line.id === 'L1-04') actors.jack.armR.rotation.x = -0.9 + Math.sin(W.clock * 8) * 0.1;
+        },
+        pose(line, t) {
+          animateHuman(hero, 0, 0, false, false);
+          if (line.shot === 'leave') {
+            // Нагибается за ветками
+            const k = smooth(clamp(t / 1.2, 0, 1));
+            hero.upper.rotation.x = 0.75 * k; hero.armR.rotation.x = -1.1 * k; hero.armL.rotation.x = -0.6 * k;
+          } else if (line.shot === 'gone') {
+            // Оглядывается по сторонам
+            P.face = 0.9 + Math.sin(t * 1.4) * 1.3;
+            hero.head.rotation.y = Math.sin(t * 2.3) * 0.4;
+            if (line.id === 'L1-08') hero.armL.rotation.x = -1.4 + Math.sin(W.clock * 10) * 0.05;
+          } else if (line.shot === 'phone') {
+            hero.armR.rotation.x = -2.1; hero.armR.rotation.z = -0.7; handR.rotation.x = 1.3;
+            P.face = 0.9;
+            if (line.id === 'L1-11') { const k = smooth(clamp(t / 1.5, 0, 1)); hero.armR.rotation.x = -2.1 + 1.6 * k; hero.head.rotation.x = 0.3 * k; }
+          }
+          phoneMesh.visible = line.shot === 'phone';
+          hero.g.position.set(P.x, P.y, P.z);
+        },
+        end() {
+          camFire(true);
+          hero.g.visible = true;
+          phoneMesh.visible = false;
+          P.face = 2.4;
+          camYaw = 2.4 + Math.PI; camPitch = 0.45;
+          Level.begin();
+        },
+      },
+      ending: {
+        endTitle: 'Уровень 1 <span class="lit">пройден</span>',
+        lines: [
+          { id: 'L1-29', shot: 'start' },
+          { id: 'L1-30', shot: 'lights' },
+        ],
+        shots: {
+          start: { hour: 21.2, cam: (t) => { const c = L1.car.position; return [V(c.x + 3, c.y + 1.9, c.z + 4.5 - t), V(c.x, c.y + 1, c.z)]; } },
+          lights: { hour: 21.3, cam: (t) => { const c = actors.car.position; return [V(c.x - 9 - t * 3, c.y + 3, c.z - 6), V(c.x, c.y + 1, c.z)]; } },
+        },
+        setup() {
+          // На месте сломанной — целая машина с фарами
+          const car = Level.makeCar(0x8a2f2a, false);
+          car.position.copy(L1.car.position); car.rotation.y = L1.car.rotation.y;
+          L1.car.visible = false;
+          group.add(car);
+          actors.car = car;
+          actors.t0 = 0;
+          // Твари выходят из темноты
+          actors.zs = [];
+          for (let k = 0; k < 3; k++) {
+            const z = makeHuman(ZOMBIE_MATS, 'zombie');
+            for (const ex of [-0.095, 0.095]) { const eye = new THREE.Mesh(roundedBox(0.09, 0.07, 0.03, 0.015), MAT.eye); eye.position.set(ex, 0.04, 0.224); z.head.add(eye); }
+            const x = car.position.x - 14 - k * 2, zz = car.position.z - 5 + k * 4;
+            z.g.position.set(x, getHeight(x, zz), zz); z.g.rotation.y = Math.PI / 2;
+            group.add(z.g);
+            actors.zs.push({ h: z, x, z: zz, ph: k });
+          }
+        },
+        update(dt, line, t) {
+          const car = actors.car;
+          for (const z of actors.zs) {
+            z.ph += dt * 1.6; z.x += dt * 0.8;
+            const bob = animateHuman(z.h, z.ph, 0.8, true, false);
+            z.h.g.position.set(z.x, getHeight(z.x, z.z) + bob, z.z);
+          }
+          if (line.shot === 'start') hero.g.visible = t < 1.2;
+          else {
+            hero.g.visible = false;
+            // Машина срывается с места к воротам
+            actors.t0 += dt;
+            const k = smooth(clamp(actors.t0 / 5, 0, 1));
+            const g = { x: LV.camp.x - LV.camp.hw - 12, z: LV.camp.z };
+            car.position.x = lerp(L1.car.position.x, g.x, k);
+            car.position.z = lerp(L1.car.position.z, g.z, k);
+            car.position.y = getHeight(car.position.x, car.position.z);
+          }
+        },
+        pose(line, t) {
+          animateHuman(hero, 0, 0, false, false);
+          hero.armR.rotation.x = -0.9; hero.armL.rotation.x = -0.8;
+          hero.g.position.set(P.x, P.y, P.z);
+        },
+        end() {
+          L1.car.visible = true;
+          hero.g.visible = true;
+          $('levelDone').hidden = false;
+        },
+      },
+    };
+
+    const camFrom = new THREE.Vector3(), camAt = new THREE.Vector3();
+    function camFire(on) {
+      // Костёр в нашем лагере горит всю первую ночь
+      if (!on || campfires.some((c) => c.story)) return;
+      addCampfire(LV.fire.x, LV.fire.z);
+      const c = campfires[campfires.length - 1];
+      c.story = true; c.life = 99999;
+    }
+
+    function play(name) {
+      S = SCRIPTS[name];
+      done = false; i = 0; shot = null; titleT = -1; actors = {};
+      group = new THREE.Group();
+      surface.add(group);
+      S.setup();
       screen = 'intro';
       for (const id of OVERLAYS) $(id).hidden = true;
       hud.root.hidden = true;
       el.root.hidden = false;
       el.root.classList.remove('out');
+      el.title.innerHTML = S.title || '';
       requestAnimationFrame(() => el.root.classList.add('on'));
       Sound.play('whoosh');
       showLine(0, true);
@@ -3524,28 +4449,38 @@
 
     function showLine(n, first) {
       i = n;
-      const L = LINES[i];
-      if (L.shot !== (shot && shot.name)) {
-        const change = () => { shot = Object.assign({ name: L.shot }, SHOTS[L.shot]); shotT = 0; shotLen = LINES.filter((x) => x.shot === L.shot).length * 4.2; };
+      const L = S.lines[i];
+      if (!shot || L.shot !== shot.name) {
+        const change = () => { shot = Object.assign({ name: L.shot }, S.shots[L.shot]); shotT = 0; shotLen = S.lines.filter((x) => x.shot === L.shot).length * 4.5; };
         if (first || !shot) change();
         else { const f = $('fade'); f.classList.add('on'); setTimeout(() => { change(); setTimeout(() => f.classList.remove('on'), 80); }, 330); }
       }
-      if (typeof L.pose === 'number') stageTarget = L.pose;
-      el.who.textContent = L.who;
-      el.who.hidden = !L.who;
+      const [who, text] = LINES[L.id];
+      el.who.textContent = L.who || who;
+      el.who.hidden = false;
       el.text.textContent = '';
       el.next.classList.remove('show');
       el.title.classList.toggle('show', !!L.title);
       chars = 0; lineT = 0;
-      if (L.radio) Sound.play('radio');
+      if (L.who && /телефон/.test(L.who)) Sound.play('radio');
+      Voice.play(L.id);
     }
+    const lineText = () => LINES[S.lines[i].id][1];
 
     function advance() {
       if (done) return;
-      const L = LINES[i];
-      if (chars < L.text.length) { chars = L.text.length; el.text.textContent = L.text; return; }
-      if (i + 1 < LINES.length) showLine(i + 1);
-      else finish();
+      // Тап по финальной надписи закрывает сцену (после короткой паузы)
+      if (titleT >= 0) { if (titleT > 0.6) finish(); return; }
+      const text = lineText();
+      if (chars < text.length) { chars = text.length; el.text.textContent = text; return; }
+      if (i + 1 < S.lines.length) showLine(i + 1);
+      else if (S.endTitle) {
+        // Финальная надпись перед игрой
+        titleT = 0;
+        el.title.innerHTML = S.endTitle;
+        el.title.classList.add('show');
+        el.who.hidden = true; el.text.textContent = ''; el.next.classList.remove('show');
+      } else finish();
     }
 
     function finish() {
@@ -3553,119 +4488,54 @@
       done = true;
       el.root.classList.add('out');
       el.root.classList.remove('on');
-      props.inHand.visible = false;
-      props.onBelt.visible = true;
-      props.ground.visible = false;
-      for (const e of extras) group.remove(e.h.g);
-      extras = [];
-      hero.g.rotation.x = 0;
-      P.face = 0;
-      camYaw = Math.PI; camPitch = 0.45;
-      camBlend = 1.6;
+      el.title.classList.remove('show');
+      if (group) { surface.remove(group); group = null; }
       setTimeout(() => { el.root.hidden = true; }, 450);
+      hero.g.rotation.x = 0;
+      camBlend = 1.6;
+      const end = S.end;
       showScreen('game');
-      toast('Подойди к дереву и нажми на экран', 'good');
+      if (end) end();
     }
 
     function update(dt) {
       if (done) return;
-      const L = LINES[i];
-      lineT += dt;
+      W.clock += dt;
       shotT += dt;
-      if (chars < L.text.length) {
-        chars = Math.min(L.text.length, chars + dt * 38);
-        el.text.textContent = L.text.slice(0, Math.floor(chars));
-        if (chars >= L.text.length) el.text.textContent = L.text;
+      if (titleT >= 0) { titleT += dt; if (titleT > 2.6) finish(); return; }
+      const L = S.lines[i], text = lineText();
+      lineT += dt;
+      if (chars < text.length) {
+        chars = Math.min(text.length, chars + dt * 34);
+        el.text.textContent = text.slice(0, Math.floor(chars));
       } else {
         el.next.classList.add('show');
-        // Сами листаются, если не нажимать
-        if (lineT > L.text.length / 38 + 2.6 + L.text.length * 0.025) advance();
+        if (lineT > text.length / 34 + 2.4 + text.length * 0.02) advance();
       }
-      stage += clamp(stageTarget - stage, -dt * 0.9, dt * 0.9);
-      // Дым и твари
-      for (const m of props.puffs) {
-        const t = (W.clock * 0.25 + m.userData.ph) % 1;
-        m.position.set(Math.sin(t * 6 + m.userData.ph * 9) * 0.15, 0.3 + t * 2.6, Math.cos(t * 5) * 0.1);
-        m.scale.setScalar(0.08 + t * 0.22);
-        m.material.opacity = 0.14 * Math.sin(t * Math.PI);
-      }
-      for (const e of extras) {
-        e.ph += dt * 1.6;
-        e.x -= Math.sin(2.3) * dt * 0.7; e.z -= Math.cos(2.3) * dt * 0.7;
-        const bob = animateHuman(e.h, e.ph, 0.8, true, false);
-        e.h.g.position.set(e.x, getHeight(e.x, e.z) + bob, e.z);
-      }
-      W.clock += dt;
+      if (S.update) S.update(dt, L, shotT);
     }
-
-    const POSES = [
-      // лежит на спине
-      { gx: -Math.PI / 2, dy: 0.42, upperX: 0, legL: 0.05, legR: -0.08, armLx: -0.25, armLz: -0.35, armRx: -0.2, armRz: 0.35, headX: -0.15 },
-      // сидит, ноги вытянуты, у уха рация
-      { gx: 0, dy: -0.66, upperX: -0.08, legL: -1.5, legR: -1.42, armLx: -0.35, armLz: -0.2, armRx: -2.05, armRz: -0.75, headX: 0.1 },
-      // стоит
-      { gx: 0, dy: 0, upperX: 0, legL: 0, legR: 0, armLx: 0, armLz: 0, armRx: 0, armRz: 0, headX: 0 },
-    ];
-    function pose() {
-      animateHuman(hero, 0, 0, false, false);
-      const a = Math.min(1, Math.floor(stage)), t = smooth(stage - a), A = POSES[a], B = POSES[Math.min(2, a + 1)];
-      const v = (k) => A[k] + (B[k] - A[k]) * t;
-      hero.g.rotation.x = v('gx');
-      hero.upper.rotation.x = v('upperX');
-      hero.legL.rotation.x = v('legL'); hero.legR.rotation.x = v('legR');
-      hero.armL.rotation.x = v('armLx'); hero.armL.rotation.z = v('armLz');
-      hero.armR.rotation.x = v('armRx'); hero.armR.rotation.z = v('armRz');
-      hero.head.rotation.x = v('headX');
-      // Встаёт с опорой: при подъёме чуть подаётся вперёд
-      if (stage > 1 && stage < 2) hero.upper.rotation.x += Math.sin((stage - 1) * Math.PI) * 0.55;
-      handR.rotation.x = 0;
-      hero.g.position.set(P.x, P.y + v('dy'), P.z);
-      const holding = stage > 0.55 && stage < 1.75;
-      props.inHand.visible = holding;
-      props.ground.visible = stage <= 0.55;
-      props.onBelt.visible = stage >= 1.75;
-      swordMesh.visible = ironSwordMesh.visible = axeMesh.visible = bottleMesh.visible = berryMesh.visible = false;
-    }
-
-    const camFrom = new THREE.Vector3(), camTo = new THREE.Vector3(), camAt = new THREE.Vector3();
+    function pose() { if (!done && S.pose) S.pose(S.lines[i], shotT); }
     function cameraUpdate() {
       if (!shot) return;
-      const t = smooth(clamp(shotT / shotLen, 0, 1));
-      if (shot.forest) {
-        // Медленный проезд мимо бредущих в сумерках тварей
-        const cx = props.zx + 3, cz = props.zz;
-        camFrom.set(cx - 9, 0, cz + 10); camTo.set(cx - 2, 0, cz + 7);
-        camera.position.lerpVectors(camFrom, camTo, t);
-        camera.position.y = getHeight(camera.position.x, camera.position.z) + 1.8;
-        camAt.set(cx, getHeight(cx, cz) + 1.3, cz);
-      } else if (shot.abs) {
-        camFrom.set(P.x + shot.from[0], 0, P.z + shot.from[2]); camTo.set(P.x + shot.to[0], 0, P.z + shot.to[2]);
-        camera.position.lerpVectors(camFrom, camTo, t);
-        camera.position.y = Math.max(getHeight(camera.position.x, camera.position.z) + 8, lerp(P.y + shot.from[1], P.y + shot.to[1], t));
-        camAt.set(P.x + shot.look[0], P.y + shot.look[1], P.z + shot.look[2]);
-      } else {
-        camFrom.set(P.x + shot.from[0], P.y + shot.from[1], P.z + shot.from[2]);
-        camTo.set(P.x + shot.to[0], P.y + shot.to[1], P.z + shot.to[2]);
-        camera.position.lerpVectors(camFrom, camTo, t);
-        camAt.set(P.x + shot.look[0], P.y + shot.look[1] + (stage > 1 ? (stage - 1) * 0.5 : 0), P.z + shot.look[2]);
-      }
-      camera.lookAt(camAt);
+      const t = clamp(shotT / shotLen, 0, 1);
+      const [from, at] = shot.cam(smooth(t));
+      camera.position.copy(from);
+      camera.position.y = Math.max(camera.position.y, getHeight(from.x, from.z) + 0.6);
+      camera.lookAt(at);
     }
-
     function clear() {
       if (group) { surface.remove(group); group = null; }
-      if (props) { handR.remove(props.inHand); hero.upper.remove(props.onBelt); props = null; }
-      extras = [];
       el.root.hidden = true;
       el.root.classList.remove('on', 'out');
+      for (const c of campfires.slice()) if (c.story) removeCampfire(c);
+      done = true;
     }
 
     el.root.addEventListener('pointerup', (e) => { if (!e.target.closest('#introSkip')) advance(); });
-    el.skip.addEventListener('click', () => finish());
+    el.skip.addEventListener('click', () => { if (titleT < 0 && S && S.endTitle) { i = S.lines.length - 1; chars = 1e9; advance(); } else finish(); });
     return {
-      start, update, pose, cameraUpdate, clear, skip: finish, next: advance,
+      start: () => play('intro'), play, update, pose, cameraUpdate, clear, skip: () => el.skip.click(), next: advance,
       hour: () => (shot && shot.hour) || hourNow(),
-      // Для общих планов туман дальше, чтобы была видна долина
       fog() { if (shot && shot.fog) { scene.fog.near = shot.fog[0]; scene.fog.far = shot.fog[1]; } },
       active: () => screen === 'intro',
     };
@@ -3691,6 +4561,7 @@
       if (!P.dead) { updatePlayer(dt); updateSurvival(dt); }
       updateZombies(dt);
       updateWorldObjects(dt);
+      Level.update(dt);
       Sound.ambient(dt, inCave ? 'cave' : 'surface', nightK);
     } else if (inMenu) {
       W.clock += dt;
@@ -3735,6 +4606,7 @@
         hero.armL.rotation.x -= 0.35 * k; hero.armR.rotation.x -= 0.35 * k;
       }
       applyAnim();
+      if (P.phone && !P.anim) { hero.armR.rotation.x = -2.1; hero.armR.rotation.z = -0.7; handR.rotation.x = 1.3; }
       dy += animPose.dy;
       const fw = forward();
       hero.g.position.set(P.x + fw.x * animPose.lunge, P.y + dy, P.z + fw.z * animPose.lunge);
@@ -3772,6 +4644,7 @@
     buildTerrain();
     buildCaveEntrances();
     buildNature();
+    Level.build();
     buildMapBase();
     Object.assign(P, freshPlayer());
     const hot = window.claude && window.claude.hot;
@@ -3793,6 +4666,10 @@
       introNext() { Intro.next(); },
       zombie() { spawnZombieAt(P.x + Math.sin(P.face) * 2, P.z + Math.cos(P.face) * 2, !!inCave); },
       get zombies() { return zombies; },
+      bridge() { return bridgeEnds(); },
+      chests() { return L1.chests.map((c) => { const bd = L1.buildings.find((b) => b.spec.id === c.spec.b); const dx = bd.cx - c.x, dz = bd.cz - c.z, l = Math.hypot(dx, dz) || 1; return { id: c.spec.id, x: c.x, z: c.z, ax: dx / l * 0.9, az: dz / l * 0.9 }; }); },
+      skladDoor() { const sk = L1.buildings.find((b) => b.spec.id === 'sklad'); return { x: sk.doorBox.x - 1.0, z: sk.cz }; },
+      carPos() { return { x: L1.car.position.x, z: L1.car.position.z }; },
       breakdown() {
         const out = {};
         scene.traverseVisible((o) => {
@@ -3808,7 +4685,7 @@
       rockH(x, z) { return inCave ? caveRockH(x, z) : null; },
       pose(name, t) { playAnim(name); P.anim.t = t * P.anim.dur; P.anim.frozen = true; },
       cam(yaw, pitch, dist) { camYaw = yaw; camPitch = pitch; if (dist) settings.dist = dist; },
-      state() { return { inCave, x: P.x, z: P.z, y: P.y, swimming: P.swimming, zombies: zombies.length, res: resources.length }; },
+      state() { return { screen, inCave, x: P.x, z: P.z, y: P.y, swimming: P.swimming, zombies: zombies.length, res: resources.length }; },
     };
   }
 
